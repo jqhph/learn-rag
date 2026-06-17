@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>文档解析与切块速查表</title>
+  <style>
+    :root { color-scheme: light; --ink:#1d2433; --muted:#667085; --line:#d8dee8; --accent:#0f766e; --accent2:#8b5e00; --good:#116329; --bad:#a10e25; --bg:#fbfcfe; --panel:#ffffff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-serif, Georgia, "Noto Serif SC", serif; color: var(--ink); background: var(--bg); line-height: 1.65; }
+    main { max-width: 920px; margin: 0 auto; padding: 40px 22px 64px; }
+    h1 { font-size: clamp(30px, 4vw, 46px); line-height: 1.1; margin: 0 0 10px; letter-spacing: 0; }
+    h2 { font-size: 21px; margin: 34px 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+    h3 { font-size: 17px; margin: 20px 0 8px; }
+    p { margin: 0 0 14px; }
+    .lede { color: var(--muted); max-width: 760px; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { background: #eef6f5; padding: 2px 5px; border-radius: 4px; font-size: 0.92em; }
+    pre { overflow: auto; background: #f6f8fa; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 14px; font-size: 13px; line-height: 1.55; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+    .card.warn { border-left: 4px solid var(--accent2); }
+    .card.good { border-left: 4px solid var(--good); }
+    .card.info { border-left: 4px solid var(--accent); }
+    .tag { display: inline-block; font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 2px 7px; border-radius: 3px; margin-right: 4px; }
+    .tag.pkg { background: #e0f2fe; color: #0369a1; }
+    .tag.fmt { background: #dcfce7; color: #166534; }
+    .tag.param { background: #fef3c7; color: #92400e; }
+    .tag.warn-tag { background: #fce7f3; color: #9d174d; }
+    ol, ul { padding-left: 22px; }
+    a { color: #0b5cad; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    table { border-collapse: collapse; width: 100%; margin: 14px 0; }
+    th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; font-size: 14px; }
+    th { background: #f6f8fa; font-weight: 700; }
+    @media print { body { background: white; } main { max-width: none; padding: 20mm; } .card { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>文档解析与切块速查表</h1>
+  <p class="lede">多格式文档加载器、切块策略参数对照、中文特殊处理要点——快速查阅和复用。</p>
+
+  <h2>依赖安装</h2>
+  <pre><code><span class="tag pkg">pip</span> pdfplumber beautifulsoup4 tiktoken</code></pre>
+  <p>pdfplumber 用于 PDF 文本提取；BeautifulSoup 用于 HTML；tiktoken 用于精确 token 计数（使用 cl100k_base 编码，兼容 text-embedding-3-small/3-large 和 GPT-4 系列）。</p>
+
+  <h2>格式加载器速查</h2>
+  <div class="grid">
+    <div class="card">
+      <h3><span class="tag fmt">.md / .txt</span> 纯文本</h3>
+      <pre><code>with open(f, "r", encoding="utf-8") as fh:
+    return fh.read()</code></pre>
+      <p>最简单。注意编码统一用 UTF-8。</p>
+    </div>
+    <div class="card">
+      <h3><span class="tag fmt">.pdf</span> PDF 文档</h3>
+      <pre><code>import pdfplumber
+with pdfplumber.open(f) as pdf:
+    for page in pdf.pages:
+        t = page.extract_text()</code></pre>
+      <p>pdfplumber 优于 PyPDF2：保留布局、中文支持好。扫描件需 OCR（pytesseract）。</p>
+    </div>
+    <div class="card">
+      <h3><span class="tag fmt">.html</span> 网页</h3>
+      <pre><code>from bs4 import BeautifulSoup
+soup = BeautifulSoup(html, "html.parser")
+for t in soup(["script","style","nav"]):
+    t.decompose()
+return soup.get_text("\n", strip=True)</code></pre>
+      <p>去掉不可见标签后再取文本。注意 class/id 可能携带语义，高级场景可保留。</p>
+    </div>
+  </div>
+
+  <h2>切块策略对比</h2>
+  <table>
+    <tr><th>策略</th><th>切分依据</th><th>中文适用性</th><th>推荐场景</th></tr>
+    <tr>
+      <td><strong>固定字符</strong></td>
+      <td><code>len(text)</code></td>
+      <td>⭐⭐ 粗糙</td>
+      <td>英文文档、快速原型</td>
+    </tr>
+    <tr>
+      <td><strong>Token 感知</strong></td>
+      <td><code>tiktoken</code> 编码后长度</td>
+      <td>⭐⭐⭐ 较好</td>
+      <td>需要精准控制上下文预算</td>
+    </tr>
+    <tr>
+      <td><strong>语义边界</strong></td>
+      <td>段落/句子边界 + token 合并</td>
+      <td>⭐⭐⭐⭐ 最好</td>
+      <td>中文长文、政策/法规文档</td>
+    </tr>
+  </table>
+
+  <h2>核心参数速查</h2>
+  <div class="grid">
+    <div class="card">
+      <h3><span class="tag param">chunk_tokens</span> 片段大小</h3>
+      <ul>
+        <li><strong>推荐：</strong>300-800 tokens</li>
+        <li>中文 ≈ 200-500 字/片段</li>
+        <li>太小（&lt;200）：丢失上下文</li>
+        <li>太大（&gt;1000）：语义稀释</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="tag param">overlap</span> 重叠量</h3>
+      <ul>
+        <li><strong>推荐：</strong>10-20% of chunk_size</li>
+        <li>按句子数：1-2 句</li>
+        <li>0 overlap：可能切断答案</li>
+        <li>太大 overlap：存储膨胀</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="tag param">top_k</span> 检索条数</h3>
+      <ul>
+        <li><strong>推荐：</strong>3-5 条</li>
+        <li>细粒度 chunk（200 tokens）：5-8 条</li>
+        <li>粗粒度 chunk（800 tokens）：2-3 条</li>
+        <li>k 越大，上下文越多但噪音也越多</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>中文 token 换算参考（cl100k_base）</h2>
+  <table>
+    <tr><th>文本类型</th><th>示例</th><th>字符数</th><th>≈ Token 数</th><th>比例</th></tr>
+    <tr><td>纯中文</td><td>"退货政策适用于未拆封商品"</td><td>12</td><td>~18</td><td>1:1.5</td></tr>
+    <tr><td>纯英文</td><td>"Return policy for unopened items"</td><td>33</td><td>~8</td><td>4:1</td></tr>
+    <tr><td>中英混排</td><td>"ABC-123 型号退货政策 v2.0"</td><td>22</td><td>~16</td><td>1.4:1</td></tr>
+    <tr><td>含数字/符号</td><td>"15 天内 | 满 ¥99 包邮"</td><td>17</td><td>~14</td><td>1.2:1</td></tr>
+  </table>
+
+  <h2>句子分割正则（中文）</h2>
+  <pre><code>import re
+# 基础版（本课使用）—— 覆盖中英文句号、问号、感叹号
+re.split(r'(?<=[。！？.!?])\s*', text)
+
+# 增强版 —— 增加分号、冒号作为弱边界
+re.split(r'(?<=[。！？.!?；;：:])\s*', text)
+
+# 专业版 —— 使用 jieba 分句（需 pip install jieba）
+import jieba
+# jieba 没有内置分句器，但可配合 re 使用
+# 或使用 spaCy: python -m spacy download zh_core_web_sm</code></pre>
+
+  <h2>loader.py 接口约定</h2>
+  <pre><code># load_docs() 返回格式（与第 2 课 DOCS 兼容）：
+[
+    {
+        "id": "return-policy.md#0",       # 文件名 + chunk 序号
+        "text": "7天无理由退货仅适用于...",  # 片段文本
+        "source": "return-policy.md",      # 来源文件名
+        "chunk_index": 0,                  # 片段序号
+        "token_count": 480,                # token 数（tiktoken 计算）
+        "char_start": 0,                   # 在原文档中的字符偏移
+        "format": ".md",                   # 源文件格式
+    },
+    # ...
+]</code></pre>
+
+  <h2>常见问题排查</h2>
+  <div class="grid">
+    <div class="card warn">
+      <h3><span class="tag warn-tag">坑</span> PDF 提取为空</h3>
+      <p><strong>原因：</strong>扫描件、图片型 PDF、加密文档。</p>
+      <p><strong>方案：</strong>检查 <code>page.extract_text()</code> 返回值；扫描件用 OCR；加密 PDF 先解密。</p>
+    </div>
+    <div class="card warn">
+      <h3><span class="tag warn-tag">坑</span> 句子边界错误</h3>
+      <p><strong>原因：</strong>引号内句号、缩写点、小数点被误判为句子边界。</p>
+      <p><strong>方案：</strong>初版接受瑕疵；生产环境用 spaCy/jieba 分句器。</p>
+    </div>
+    <div class="card warn">
+      <h3><span class="tag warn-tag">坑</span> token 数估算偏差大</h3>
+      <p><strong>原因：</strong>用 <code>len(text)</code> 估算 token 数，中文误差 50%+。</p>
+      <p><strong>方案：</strong>安装 tiktoken，用 <code>ENCODER.encode(text)</code> 精确计算。</p>
+    </div>
+  </div>
+
+  <h2>相关课程</h2>
+  <p>
+    <a href="../lessons/0001-rag-minimum-loop.html">第 1 课：RAG 最小闭环</a> ·
+    <a href="../lessons/0002-rag-python-demo.html">第 2 课：Python Demo</a> ·
+    <a href="../lessons/0003-doc-parsing-chunking.html">第 3 课：文档解析与切块</a> ·
+    <a href="0001-rag-minimum-loop-cheatsheet.html">闭环速查表</a> ·
+    <a href="0002-rag-python-demo-cheatsheet.html">Python Demo 速查表</a>
+  </p>
+</main>
+</body>
+</html>

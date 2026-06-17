@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RAG Python Demo 速查表</title>
+  <style>
+    :root { color-scheme: light; --ink:#1d2433; --muted:#667085; --line:#d8dee8; --accent:#0f766e; --accent2:#8b5e00; --good:#116329; --bad:#a10e25; --bg:#fbfcfe; --panel:#ffffff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-serif, Georgia, "Noto Serif SC", serif; color: var(--ink); background: var(--bg); line-height: 1.65; }
+    main { max-width: 920px; margin: 0 auto; padding: 40px 22px 64px; }
+    h1 { font-size: clamp(30px, 4vw, 46px); line-height: 1.1; margin: 0 0 10px; letter-spacing: 0; }
+    h2 { font-size: 21px; margin: 34px 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+    h3 { font-size: 17px; margin: 20px 0 8px; }
+    p { margin: 0 0 14px; }
+    .lede { color: var(--muted); max-width: 760px; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { background: #eef6f5; padding: 2px 5px; border-radius: 4px; font-size: 0.92em; }
+    pre { overflow: auto; background: #f6f8fa; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 14px; font-size: 13px; line-height: 1.55; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+    .card.warn { border-left: 4px solid var(--accent2); }
+    .card.good { border-left: 4px solid var(--good); }
+    .step { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--accent); font-weight: 700; display: block; margin-bottom: 6px; }
+    .tag { display: inline-block; font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 2px 7px; border-radius: 3px; margin-right: 4px; }
+    .tag.pkg { background: #e0f2fe; color: #0369a1; }
+    .tag.api { background: #fef3c7; color: #92400e; }
+    .tag.cfg { background: #fce7f3; color: #9d174d; }
+    ol, ul { padding-left: 22px; }
+    a { color: #0b5cad; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    table { border-collapse: collapse; width: 100%; margin: 14px 0; }
+    th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; font-size: 14px; }
+    th { background: #f6f8fa; font-weight: 700; }
+    @media print { body { background: white; } main { max-width: none; padding: 20mm; } .card { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>RAG Python Demo 速查表</h1>
+  <p class="lede">一个最小可运行的客服问答 RAG Demo 的关键代码片段和常用参数，方便快速查阅和复用。</p>
+
+  <h2>依赖</h2>
+  <pre><code><span class="tag pkg">pip</span> chromadb openai</code></pre>
+  <p>Python ≥ 3.10。Chroma 自动使用 SQLite 持久化；OpenAI 需要 <code>OPENAI_API_KEY</code> 环境变量。</p>
+
+  <h2>项目骨架</h2>
+  <pre><code>rag-demo/
+├── demo.py          # 主脚本
+├── chroma_data/     # Chroma 持久化数据（自动生成）
+└── .venv/           # 虚拟环境</code></pre>
+
+  <h2>七大步骤速查</h2>
+  <div class="grid">
+    <section class="card">
+      <span class="step">1. Source</span>
+      <p>准备文档列表，每条带 id、text、source、topic 等元数据。</p>
+      <code>DOCS = [{"id":"doc-001","text":"...","source":"...","topic":"..."}]</code>
+    </section>
+    <section class="card">
+      <span class="step">2. Chunk</span>
+      <p>Demo 阶段每条文档即为一个 chunk。真实场景需按 chunk_size + overlap 策略切分。</p>
+      <code>chunk_size ≈ 300-800 中文字</code>
+    </section>
+    <section class="card">
+      <span class="step">3. Embed</span>
+      <p>调用 OpenAI <code>text-embedding-3-small</code>（1536 维），一次可传多条。</p>
+      <code>openai_client.embeddings.create(model="text-embedding-3-small", input=texts)</code>
+    </section>
+    <section class="card">
+      <span class="step">4. Store</span>
+      <p>用 upsert 写入 Chroma，同时存 embeddings、documents、metadatas。</p>
+      <code>collection.upsert(ids=ids, embeddings=embs, documents=texts, metadatas=metas)</code>
+    </section>
+    <section class="card">
+      <span class="step">5. Retrieve</span>
+      <p>把问题向量化，用 query_embeddings 取 top-k 结果。</p>
+      <code>collection.query(query_embeddings=[q_emb], n_results=k)</code>
+    </section>
+    <section class="card">
+      <span class="step">6. Generate</span>
+      <p>检索结果拼入提示词，调 Chat API，temperature=0.0。</p>
+      <code>openai_client.chat.completions.create(model="gpt-4o-mini", messages=[...], temperature=0.0)</code>
+    </section>
+    <section class="card">
+      <span class="step">7. Evaluate</span>
+      <p>人工检查三条：检索命中是否正确、回答是否引用来源、未知问题是否拒答。</p>
+    </section>
+  </div>
+
+  <h2>核心 API 签名</h2>
+
+  <table>
+    <tr><th>API</th><th>关键参数</th><th>返回值</th></tr>
+    <tr>
+      <td><span class="tag api">Embeddings</span></td>
+      <td><code>model</code>（text-embedding-3-small / 3-large / ada-002）<br><code>input</code>（str 或 list[str]，单次最多 2048 条）</td>
+      <td><code>resp.data[i].embedding</code>：1536 维 float 列表</td>
+    </tr>
+    <tr>
+      <td><span class="tag api">Chroma upsert</span></td>
+      <td><code>ids</code>、<code>embeddings</code>、<code>documents</code>、<code>metadatas</code></td>
+      <td>无返回值</td>
+    </tr>
+    <tr>
+      <td><span class="tag api">Chroma query</span></td>
+      <td><code>query_embeddings</code>（或 <code>query_texts</code> 自动向量化）<br><code>n_results</code>（top-k，默认 10）</td>
+      <td><code>{"ids":[[...]], "documents":[[...]], "metadatas":[[...]], "distances":[[...]]}</code></td>
+    </tr>
+    <tr>
+      <td><span class="tag api">Chat Completions</span></td>
+      <td><code>model</code>（gpt-4o-mini / gpt-4o）<br><code>messages</code>（system + user）<br><code>temperature</code>（0.0-2.0）</td>
+      <td><code>resp.choices[0].message.content</code></td>
+    </tr>
+  </table>
+
+  <h2>系统提示词模板</h2>
+  <pre><code>你是一个客服问答助手。请严格根据下面提供的知识库内容回答用户问题。
+规则：
+1. 如果知识库中有答案，引用具体条款并标注来源。
+2. 如果知识库中没有答案，直接说"根据现有资料，我无法回答这个问题"，不要编造。
+3. 回答简洁、准确，用中文。</code></pre>
+
+  <h2>默认参数建议</h2>
+  <div class="grid">
+    <section class="card good">
+      <h3>推荐值</h3>
+      <ul>
+        <li><code>model</code>：text-embedding-3-small（性价比最高）</li>
+        <li><code>chat_model</code>：gpt-4o-mini（快、便宜、足够客服使用）</li>
+        <li><code>top_k</code>：3（客服问题通常 3 条足矣）</li>
+        <li><code>temperature</code>：0.0（事实场景）</li>
+      </ul>
+    </section>
+    <section class="card warn">
+      <h3>常见错误</h3>
+      <ul>
+        <li>入库和查询用了不同的 embedding 模型</li>
+        <li>忘记设置 OPENAI_API_KEY 环境变量</li>
+        <li>把 temperature 设太高，客服回答不稳定</li>
+        <li>metadata 里没有存 source，答案无法追溯</li>
+        <li>提示词里没写"不要编造"</li>
+      </ul>
+    </section>
+  </div>
+
+  <h2>使用兼容 API（非 OpenAI）</h2>
+  <pre><code>openai_client = OpenAI(
+    api_key="...",
+    base_url="https://api.deepseek.com/v1",  # 或其他兼容端点
+)
+# 然后把 model 参数换成对应服务的模型名即可</code></pre>
+
+  <h2>相关课程</h2>
+  <p><a href="../lessons/0001-rag-minimum-loop.html">第 1 课：RAG 最小闭环</a> · <a href="../lessons/0002-rag-python-demo.html">第 2 课：Python Demo</a> · <a href="0001-rag-minimum-loop-cheatsheet.html">闭环概念速查表</a></p>
+</main>
+</body>
+</html>

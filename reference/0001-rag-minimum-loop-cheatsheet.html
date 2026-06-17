@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RAG 最小闭环速查表</title>
+  <style>
+    :root { color-scheme: light; --ink:#1d2433; --muted:#667085; --line:#d8dee8; --accent:#0f766e; --bg:#fbfcfe; --panel:#ffffff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-serif, Georgia, "Noto Serif SC", serif; color: var(--ink); background: var(--bg); line-height: 1.65; }
+    main { max-width: 920px; margin: 0 auto; padding: 40px 22px 64px; }
+    h1 { font-size: clamp(30px, 4vw, 46px); line-height: 1.1; margin: 0 0 10px; letter-spacing: 0; }
+    h2 { font-size: 21px; margin: 34px 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+    p { margin: 0 0 14px; }
+    .lede { color: var(--muted); max-width: 760px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+    .step { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--accent); font-weight: 700; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #eef6f5; padding: 2px 5px; border-radius: 4px; }
+    ol { padding-left: 22px; }
+    a { color: #0b5cad; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    @media print { body { background: white; } main { max-width: none; padding: 20mm; } .card { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>RAG 最小闭环速查表</h1>
+  <p class="lede">用于客服问答 Demo：把可维护的知识放在外部文档里，让模型先检索、再基于证据回答。</p>
+
+  <h2>七步闭环</h2>
+  <div class="grid">
+    <section class="card"><div class="step">1. Source</div><p>准备 FAQ、产品说明、售后政策、工单模板等原始资料。</p></section>
+    <section class="card"><div class="step">2. Chunk</div><p>把长文档切成能独立表达意思的小片段，并保留来源元数据。</p></section>
+    <section class="card"><div class="step">3. Embed</div><p>用 embedding 模型把每个片段转成向量，用于语义相似度搜索。</p></section>
+    <section class="card"><div class="step">4. Store</div><p>把向量、原文、标题、URL、版本、业务标签存入向量库集合。</p></section>
+    <section class="card"><div class="step">5. Retrieve</div><p>用户提问时，先把问题向量化，再取最相似的 top-k 片段。</p></section>
+    <section class="card"><div class="step">6. Generate</div><p>把问题和检索片段一起放入提示词，让 LLM 只基于证据回答。</p></section>
+    <section class="card"><div class="step">7. Evaluate</div><p>检查答案是否正确、是否引用来源、是否拒答未知问题。</p></section>
+  </div>
+
+  <h2>最容易犯错的点</h2>
+  <ol>
+    <li>只做生成，不做检索：模型会凭记忆回答，难以更新和追溯。</li>
+    <li>切块太大：检索结果含噪声，模型难以定位关键条款。</li>
+    <li>切块太小：上下文丢失，答案缺少完整依据。</li>
+    <li>没有元数据：答案无法显示来源，也难以按产品线或权限过滤。</li>
+    <li>没有拒答规则：资料里没有答案时，系统仍然编造。</li>
+  </ol>
+
+  <h2>Demo 阶段默认参数</h2>
+  <p>从这些默认值开始，不要一上来调复杂架构：<code>chunk_size</code> 约 300-800 中文字，<code>overlap</code> 约 50-100 字，<code>top_k</code> 取 3-5，先用本地 Chroma，先用 Python。</p>
+
+  <h2>相关课程</h2>
+  <p><a href="../lessons/0001-rag-minimum-loop.html">第 1 课：RAG 最小闭环</a> · <a href="../lessons/0002-rag-python-demo.html">第 2 课：Python Demo</a></p>
+</main>
+</body>
+</html>

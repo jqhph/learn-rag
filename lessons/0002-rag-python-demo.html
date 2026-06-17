@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 2 课：把 RAG 闭环写成可运行的 Python Demo</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink:#172033; --muted:#667085; --line:#d7dde8; --accent:#0f766e;
+      --accent2:#8b5e00; --good:#116329; --bad:#a10e25; --bg:#fbfcfe; --panel:#fff;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-serif, Georgia, "Noto Serif SC", serif; color:var(--ink); background:var(--bg); line-height:1.7; }
+    main { max-width: 900px; margin: 0 auto; padding: 42px 22px 70px; }
+    header { margin-bottom: 30px; }
+    .kicker { font: 700 13px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--accent); text-transform: uppercase; letter-spacing: .08em; }
+    h1 { font-size: clamp(32px, 5vw, 54px); line-height:1.08; margin: 10px 0 12px; letter-spacing:0; }
+    h2 { font-size: 23px; margin: 34px 0 12px; padding-bottom: 6px; border-bottom:1px solid var(--line); }
+    h3 { font-size: 18px; margin: 20px 0 8px; }
+    p { margin: 0 0 14px; }
+    a { color:#0b5cad; text-decoration-thickness:1px; text-underline-offset:3px; }
+    .lede { color:var(--muted); max-width:760px; font-size:18px; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin:16px 0; }
+    .panel.good { border-left:4px solid var(--good); }
+    .panel.warn { border-left:4px solid var(--accent2); }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { background:#eef6f5; padding:2px 5px; border-radius:4px; font-size:0.92em; }
+    pre { overflow:auto; background:#f6f8fa; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:16px; font-size:14px; line-height:1.55; }
+    pre .cmt { color:#6a737d; font-style:italic; }
+    pre .kw { color:#d73a49; font-weight:700; }
+    pre .str { color:#032f62; }
+    pre .fn { color:#6f42c1; }
+    .small { color:var(--muted); font-size:14px; }
+    .quiz { display:grid; gap:10px; margin-top:12px; }
+    button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:11px 13px; text-align:left; font: 600 15px/1.35 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; color:var(--ink); cursor:pointer; }
+    button:hover { border-color:var(--accent); }
+    button.correct { border-color:var(--good); background:#edf8ef; color:var(--good); }
+    button.wrong { border-color:var(--bad); background:#fff0f2; color:var(--bad); }
+    .feedback { min-height:26px; font-weight:700; margin-top:8px; }
+    .task { border-left:4px solid var(--accent2); padding-left:14px; }
+    .checklist { list-style:none; padding-left:0; }
+    .checklist li { padding:4px 0; }
+    .checklist li::before { content:"☐ "; color:var(--accent); font-weight:700; }
+    .step-num { display:inline-block; width:24px; height:24px; background:var(--accent); color:#fff; border-radius:50%; text-align:center; line-height:24px; font:700 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin-right:8px; }
+    ul { padding-left:22px; }
+    table { border-collapse:collapse; width:100%; margin:14px 0; }
+    th, td { border:1px solid var(--line); padding:8px 12px; text-align:left; font-size:15px; }
+    th { background:#f6f8fa; font-weight:700; }
+    @media print { body { background:white; } main { max-width:none; padding:20mm; } .panel { break-inside: avoid; } button { border-color:#aaa; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="kicker">Lesson 0002</div>
+    <h1>把 RAG 闭环写成可运行的 Python Demo</h1>
+    <p class="lede">本课目标：你在本机上跑通一个完整的客服问答 RAG Demo——从文档入库到基于证据回答，每一步都是你自己的代码。</p>
+  </header>
+
+  <section>
+    <h2>你今天要获得的能力</h2>
+    <p>学完本课，你将拥有一段约 80 行的 Python 脚本，它能：</p>
+    <ul>
+      <li>把 5 条中文客服文档切片、向量化、存入本地 Chroma</li>
+      <li>接收用户自然语言提问，用语义检索找到最相关的文档片段</li>
+      <li>调用 OpenAI Chat API，让模型<strong>只基于检索到的证据</strong>生成回答</li>
+      <li>在回答中标注信息来源</li>
+    </ul>
+    <p>这是从"看懂代码形状"到"亲手让它跑起来"的关键一步。上一课你理解了闭环概念，这一课你把它变成能跑的东西。</p>
+    <p class="small">主推荐阅读：<a href="https://docs.trychroma.com/docs/overview/getting-started">Chroma Getting Started</a>、<a href="https://platform.openai.com/docs/guides/embeddings">OpenAI Embeddings Guide</a>、<a href="https://platform.openai.com/docs/api-reference/chat/create">OpenAI Chat Completions API</a>。速查表：<a href="../reference/0001-rag-minimum-loop-cheatsheet.html">RAG 最小闭环速查表</a>。</p>
+  </section>
+
+  <section>
+    <h2>第一步：环境准备</h2>
+    <p>在你的项目目录下，新建一个虚拟环境并安装依赖：</p>
+    <pre><code><span class="cmt"># 创建项目目录并进入</span>
+mkdir rag-demo && cd rag-demo
+
+<span class="cmt"># 创建虚拟环境（Python ≥ 3.10）</span>
+python3 -m venv .venv
+source .venv/bin/activate  <span class="cmt"># Windows: .venv\Scripts\activate</span>
+
+<span class="cmt"># 安装依赖</span>
+pip install chromadb openai</code></pre>
+
+    <div class="panel warn">
+      <h3>⚠️ API Key 准备</h3>
+      <p>你需要一个 OpenAI API Key。在 <a href="https://platform.openai.com/api-keys">OpenAI 控制台</a> 创建一个 key，然后设置环境变量：</p>
+      <pre><code>export OPENAI_API_KEY="sk-..."  <span class="cmt"># 替换为你的 key</span></code></pre>
+      <p class="small">如果你没有 OpenAI key，可以用兼容接口（如 DeepSeek、Qwen 等）。改动只是把 <code>base_url</code> 和 <code>model</code> 换成对应服务的参数，我们稍后讨论。</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>第二步：完整代码，逐块读懂</h2>
+    <p>把以下代码保存为 <code>demo.py</code>。我们先整体看一遍，然后逐块拆解它在闭环中的位置。</p>
+    <pre><code><span class="kw">import</span> os
+<span class="kw">import</span> chromadb
+<span class="kw">from</span> openai <span class="kw">import</span> OpenAI
+
+<span class="cmt"># ── 初始化 ──────────────────────────────────</span>
+openai_client = OpenAI(api_key=os.environ[<span class="str">"OPENAI_API_KEY"</span>])
+chroma_client = chromadb.PersistentClient(path=<span class="str">"./chroma_data"</span>)
+collection = chroma_client.get_or_create_collection(<span class="str">"support_qa"</span>)
+
+<span class="cmt"># ── 1. 知识库准备 ──────────────────────────</span>
+DOCS = [
+    {<span class="str">"id"</span>: <span class="str">"doc-001"</span>, <span class="str">"text"</span>: <span class="str">"7 天无理由退货仅适用于未拆封商品。已拆封但存在质量问题的商品，可在签收后 15 天内申请售后检测，检测确认质量问题后可全额退款。"</span>, <span class="str">"source"</span>: <span class="str">"return-policy.md"</span>, <span class="str">"topic"</span>: <span class="str">"refund"</span>},
+    {<span class="str">"id"</span>: <span class="str">"doc-002"</span>, <span class="str">"text"</span>: <span class="str">"普通发票在订单完成后 24 小时内自动开具。增值税专用发票需提交：公司全称、纳税人识别号、注册地址、联系电话、开户银行及账号。"</span>, <span class="str">"source"</span>: <span class="str">"invoice-policy.md"</span>, <span class="str">"topic"</span>: <span class="str">"invoice"</span>},
+    {<span class="str">"id"</span>: <span class="str">"doc-003"</span>, <span class="str">"text"</span>: <span class="str">"会员积分不能提现。积分仅可用于：兑换优惠券（100 积分 = 1 元）、兑换配件商品、参与积分抽奖活动。积分有效期为获得后 365 天。"</span>, <span class="str">"source"</span>: <span class="str">"points-policy.md"</span>, <span class="str">"topic"</span>: <span class="str">"points"</span>},
+    {<span class="str">"id"</span>: <span class="str">"doc-004"</span>, <span class="str">"text"</span>: <span class="str">"标准快递送达时间为 1-3 个工作日，偏远地区 3-7 个工作日。订单满 99 元包邮，不满 99 元收取 8 元运费。加急配送（当日达/次日达）需额外支付 15 元。"</span>, <span class="str">"source"</span>: <span class="str">"shipping-policy.md"</span>, <span class="str">"topic"</span>: <span class="str">"shipping"</span>},
+    {<span class="str">"id"</span>: <span class="str">"doc-005"</span>, <span class="str">"text"</span>: <span class="str">"在线客服工作时间：周一至周五 9:00-21:00，周六日 10:00-18:00。电话客服 7×24 小时可接通，紧急问题请直接拨打 400-xxx-xxxx。工单系统 7×24 小时可提交。"</span>, <span class="str">"source"</span>: <span class="str">"support-policy.md"</span>, <span class="str">"topic"</span>: <span class="str">"support"</span>},
+]
+
+<span class="cmt"># ── 2-3. Chunk + Embed + Store ─────────────</span>
+<span class="kw">def</span> <span class="fn">ingest_docs</span>():
+    texts = [d[<span class="str">"text"</span>] <span class="kw">for</span> d <span class="kw">in</span> DOCS]
+    metadatas = [{<span class="str">"source"</span>: d[<span class="str">"source"</span>], <span class="str">"topic"</span>: d[<span class="str">"topic"</span>]} <span class="kw">for</span> d <span class="kw">in</span> DOCS]
+    ids = [d[<span class="str">"id"</span>] <span class="kw">for</span> d <span class="kw">in</span> DOCS]
+
+    <span class="cmt"># 用 OpenAI 为每条文档生成 embedding</span>
+    resp = openai_client.embeddings.create(
+        model=<span class="str">"text-embedding-3-small"</span>,
+        input=texts,
+    )
+    embeddings = [item.embedding <span class="kw">for</span> item <span class="kw">in</span> resp.data]
+
+    <span class="cmt"># 写入 Chroma（upsert = 有则更新，无则插入）</span>
+    collection.upsert(
+        ids=ids,
+        embeddings=embeddings,
+        documents=texts,
+        metadatas=metadatas,
+    )
+    <span class="kw">print</span>(<span class="str">f"✅ 已入库 {len(texts)} 条文档"</span>)
+
+<span class="cmt"># ── 4-5. Retrieve ──────────────────────────</span>
+<span class="kw">def</span> <span class="fn">retrieve</span>(query: str, k: int = 3):
+    query_emb = openai_client.embeddings.create(
+        model=<span class="str">"text-embedding-3-small"</span>,
+        input=[query],
+    ).data[0].embedding
+
+    results = collection.query(
+        query_embeddings=[query_emb],
+        n_results=k,
+    )
+    <span class="kw">return</span> results[<span class="str">"documents"</span>][0], results[<span class="str">"metadatas"</span>][0], results[<span class="str">"distances"</span>][0]
+
+<span class="cmt"># ── 6. Generate ────────────────────────────</span>
+<span class="kw">def</span> <span class="fn">answer</span>(query: str):
+    docs, metas, dists = retrieve(query)
+
+    <span class="cmt"># 拼接检索结果作为上下文</span>
+    context_parts = []
+    <span class="kw">for</span> i, (doc, meta) <span class="kw">in</span> <span class="kw">enumerate</span>(<span class="kw">zip</span>(docs, metas)):
+        context_parts.append(<span class="str">f"[来源 {i+1}] ({meta['source']}，主题：{meta['topic']})\n{doc}"</span>)
+    context = <span class="str">"\n\n"</span>.join(context_parts)
+
+    <span class="kw">print</span>(<span class="str">f"\n🔍 检索到 {len(docs)} 条相关文档:\n{context}\n"</span>)
+
+    <span class="cmt"># 构造提示词：要求只基于证据回答</span>
+    system_prompt = <span class="str">"""你是一个客服问答助手。请严格根据下面提供的知识库内容回答用户问题。
+规则：
+1. 如果知识库中有答案，引用具体条款并标注来源。
+2. 如果知识库中没有答案，直接说"根据现有资料，我无法回答这个问题"，不要编造。
+3. 回答简洁、准确，用中文。"""</span>
+
+    user_prompt = <span class="str">f"""知识库内容：
+{context}
+
+用户问题：{query}
+
+请根据以上知识库内容回答。"""</span>
+
+    resp = openai_client.chat.completions.create(
+        model=<span class="str">"gpt-4o-mini"</span>,
+        messages=[
+            {<span class="str">"role"</span>: <span class="str">"system"</span>, <span class="str">"content"</span>: system_prompt},
+            {<span class="str">"role"</span>: <span class="str">"user"</span>, <span class="str">"content"</span>: user_prompt},
+        ],
+        temperature=0.0,  <span class="cmt"># 客服场景用低温，减少随机性</span>
+    )
+    <span class="kw">return</span> resp.choices[0].message.content
+
+<span class="cmt"># ── 主流程 ──────────────────────────────────</span>
+<span class="kw">if</span> __name__ == <span class="str">"__main__"</span>:
+    ingest_docs()
+
+    <span class="cmt"># 测试几个问题</span>
+    queries = [
+        <span class="str">"拆开用了发现质量问题，还能退吗？"</span>,
+        <span class="str">"积分可以用来干什么？"</span>,
+        <span class="str">"你们公司在哪里上市的？"</span>,  <span class="cmt"># 知识库里没有，应拒答</span>
+    ]
+
+    <span class="kw">for</span> q <span class="kw">in</span> queries:
+        <span class="kw">print</span>(<span class="str">f"\n{'='*50}"</span>)
+        <span class="kw">print</span>(<span class="str">f"🙋 用户: {q}"</span>)
+        ans = answer(q)
+        <span class="kw">print</span>(<span class="str">f"🤖 客服: {ans}"</span>)</code></pre>
+
+    <p>现在我们来逐块对应闭环的每一步：</p>
+
+    <table>
+      <tr><th>步骤</th><th>代码位置</th><th>做什么</th></tr>
+      <tr><td>1. Source</td><td><code>DOCS</code> 列表</td><td>5 条客服政策文档，每条带 id、原文、来源、主题</td></tr>
+      <tr><td>2. Chunk</td><td>每条文档自身</td><td>本 Demo 每条文档已经是独立片段；后续课程会讲长文档切片策略</td></tr>
+      <tr><td>3. Embed</td><td><code>ingest_docs()</code> 中 <code>embeddings.create()</code></td><td>调用 OpenAI <code>text-embedding-3-small</code>，每条文档转成一个 1536 维向量</td></tr>
+      <tr><td>4. Store</td><td><code>collection.upsert()</code></td><td>向量 + 原文 + 元数据一起写入 Chroma 持久化存储</td></tr>
+      <tr><td>5. Retrieve</td><td><code>retrieve()</code></td><td>把问题也向量化，用 Chroma 的 <code>query()</code> 按余弦距离取 top-k</td></tr>
+      <tr><td>6. Generate</td><td><code>answer()</code> 中 <code>chat.completions.create()</code></td><td>检索结果拼入提示词，让 LLM 只基于证据生成回答</td></tr>
+      <tr><td>7. Evaluate</td><td>第三个测试问题</td><td>问一个知识库里不存在的问题，验证模型是否拒答</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>第三步：跑起来，看输出</h2>
+    <pre><code>python demo.py</code></pre>
+    <p>你应该看到类似这样的输出：</p>
+    <pre><code>✅ 已入库 5 条文档
+
+==================================================
+🙋 用户: 拆开用了发现质量问题，还能退吗？
+🔍 检索到 3 条相关文档:
+[来源 1] (return-policy.md，主题：refund)
+7 天无理由退货仅适用于未拆封商品。已拆封但存在质量问题的商品...
+
+🤖 客服: 根据 return-policy.md，已拆封但存在质量问题的商品，
+可以在签收后 15 天内申请售后检测。检测确认质量问题后可全额退款。
+
+==================================================
+🙋 用户: 积分可以用来干什么？
+...
+
+==================================================
+🙋 用户: 你们公司在哪里上市的？
+🤖 客服: 根据现有资料，我无法回答这个问题。</code></pre>
+
+    <div class="panel good">
+      <h3>观察三个关键行为</h3>
+      <ol>
+        <li><strong>语义匹配</strong>：用户说的是"拆开用了"，文档写的是"已拆封"，关键词不同但语义接近，检索命中了。</li>
+        <li><strong>来源引用</strong>：回答中标注了 <code>return-policy.md</code>，答案可追溯。</li>
+        <li><strong>拒答</strong>：第三个问题（上市地点）不在知识库里，模型直接拒绝回答，没有编造。</li>
+      </ol>
+    </div>
+  </section>
+
+  <section>
+    <h2>练习：你的回合</h2>
+
+    <h3>练习一：检索理解</h3>
+    <p>不运行代码，只看上面的 5 条文档。当用户问"满 100 元包邮吗？"时，应该检索到哪条文档？输入去掉了"不满 99"这个信息后模型会怎么回答？</p>
+    <div class="quiz" id="quiz1">
+      <button data-answer="wrong">会检索到 doc-001，回答"不包邮"</button>
+      <button data-answer="right">会检索到 doc-004，模型应回答"满 99 元包邮，所以满 100 元符合包邮条件"</button>
+      <button data-answer="wrong">会检索到 doc-005，回答"请咨询客服"</button>
+    </div>
+    <p class="feedback" id="feedback1"></p>
+
+    <h3>练习二：代码修改</h3>
+    <div class="task panel">
+      <h3>动手改代码</h3>
+      <p>在 <code>DOCS</code> 列表里加一条新文档（比如"退款到账时间：支付宝/微信 1-3 个工作日，银行卡 3-7 个工作日"），重新运行 <code>python demo.py</code>，然后问一个需要新文档才能回答的问题。验证：（1）检索是否命中新文档，（2）回答是否引用了新来源。</p>
+      <p class="small">这是一个反馈闭环：改数据 → 跑 → 检查检索命中 → 检查回答质量。RAG 的调优本质上就是不断重复这个循环。</p>
+    </div>
+
+    <h3>练习三：低温 vs 高温</h3>
+    <p>把代码里的 <code>temperature=0.0</code> 改成 <code>temperature=1.5</code>，重新跑一遍三个问题。观察客服场景下高温输出有什么问题？再把值改回 0.0。</p>
+    <p class="small">你会发现低温更适合需要事实一致性的场景（客服、法律、医疗），高温适合创意场景（写作、头脑风暴）。</p>
+  </section>
+
+  <section>
+    <h2>你现在应该记住的四句话</h2>
+    <ul>
+      <li>RAG Demo 的核心代码不到 80 行：初始化 → 入库 → 检索 → 生成，每一行都属于闭环中的一步。</li>
+      <li>embedding 函数在入库和查询时<strong>必须用同一个模型</strong>，否则向量空间不一致，检索会失效。</li>
+      <li>提示词中的"只基于证据回答"和"不知道就说不知道"不是可选项——这是企业级 RAG 的底线。</li>
+      <li>客服场景用 <code>temperature=0.0</code>：事实一致性比花哨表达重要得多。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>接下来学什么</h2>
+    <p>现在你有了一个能跑的 Demo。但你会立刻发现几个问题：文档是自己手写的、只有 5 条、每一条已经是切好的片段。真实场景下，文档是 PDF/网页/Word，需要的远不止这些。下一课会讲：</p>
+    <ul>
+      <li><strong>文档解析</strong>：从 PDF、网页、Markdown 中提取文本</li>
+      <li><strong>真正的切块策略</strong>：chunk_size、overlap、按段落/按句子切分</li>
+    </ul>
+    <p>复习用速查表：<a href="../reference/0002-rag-python-demo-cheatsheet.html">RAG Python Demo 速查表</a>。回顾上一课：<a href="0001-rag-minimum-loop.html">第 1 课：RAG 最小闭环</a>。</p>
+    <p class="small">有任何不清楚的地方——代码报错、API 调用失败、检索结果不对——直接问我。把报错信息贴给我，我帮你诊断。</p>
+  </section>
+</main>
+
+<script>
+  function setupQuiz(quizId, feedbackId) {
+    const quiz = document.getElementById(quizId);
+    const feedback = document.getElementById(feedbackId);
+    quiz.addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      [...quiz.querySelectorAll("button")].forEach((item) => {
+        item.classList.remove("correct", "wrong");
+      });
+      if (button.dataset.answer === "right") {
+        button.classList.add("correct");
+        feedback.textContent = "✓ 正确。关键词不同但语义接近，检索能命中 doc-004 的配送政策；99 元包邮规则表明 100 元已满足条件。";
+        feedback.style.color = "var(--good)";
+      } else {
+        button.classList.add("wrong");
+        feedback.textContent = "再想一步：包邮规则在配送政策里，不是退货也不是客服。语义检索应该匹配到 doc-004。";
+        feedback.style.color = "var(--bad)";
+      }
+    });
+  }
+  setupQuiz("quiz1", "feedback1");
+</script>
+</body>
+</html>

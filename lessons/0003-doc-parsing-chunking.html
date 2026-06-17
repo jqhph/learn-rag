@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 3 课：文档解析与文本切块 —— 从真实文件到可检索片段</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink:#172033; --muted:#667085; --line:#d7dde8; --accent:#0f766e;
+      --accent2:#8b5e00; --good:#116329; --bad:#a10e25; --bg:#fbfcfe; --panel:#fff;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-serif, Georgia, "Noto Serif SC", serif; color:var(--ink); background:var(--bg); line-height:1.7; }
+    main { max-width: 900px; margin: 0 auto; padding: 42px 22px 70px; }
+    header { margin-bottom: 30px; }
+    .kicker { font: 700 13px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--accent); text-transform: uppercase; letter-spacing: .08em; }
+    h1 { font-size: clamp(32px, 5vw, 54px); line-height:1.08; margin: 10px 0 12px; letter-spacing:0; }
+    h2 { font-size: 23px; margin: 34px 0 12px; padding-bottom: 6px; border-bottom:1px solid var(--line); }
+    h3 { font-size: 18px; margin: 20px 0 8px; }
+    p { margin: 0 0 14px; }
+    a { color:#0b5cad; text-decoration-thickness:1px; text-underline-offset:3px; }
+    .lede { color:var(--muted); max-width:760px; font-size:18px; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin:16px 0; }
+    .panel.good { border-left:4px solid var(--good); }
+    .panel.warn { border-left:4px solid var(--accent2); }
+    .panel.info { border-left:4px solid var(--accent); }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { background:#eef6f5; padding:2px 5px; border-radius:4px; font-size:0.92em; }
+    pre { overflow:auto; background:#f6f8fa; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:16px; font-size:14px; line-height:1.55; }
+    .small { color:var(--muted); font-size:14px; }
+    .quiz { display:grid; gap:10px; margin-top:12px; }
+    button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:11px 13px; text-align:left; font: 600 15px/1.35 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; color:var(--ink); cursor:pointer; }
+    button:hover { border-color:var(--accent); }
+    button.correct { border-color:var(--good); background:#edf8ef; color:var(--good); }
+    button.wrong { border-color:var(--bad); background:#fff0f2; color:var(--bad); }
+    .feedback { min-height:26px; font-weight:700; margin-top:8px; }
+    .task { border-left:4px solid var(--accent2); padding-left:14px; }
+    table { border-collapse:collapse; width:100%; margin:14px 0; }
+    th, td { border:1px solid var(--line); padding:8px 12px; text-align:left; font-size:15px; }
+    th { background:#f6f8fa; font-weight:700; }
+    ul, ol { padding-left:22px; }
+    .combo { display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin:16px 0; }
+    @media (max-width: 640px) { .combo { grid-template-columns: 1fr; } }
+    @media print { body { background:white; } main { max-width:none; padding:20mm; } .panel { break-inside: avoid; } button { border-color:#aaa; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="kicker">Lesson 0003</div>
+    <h1>文档解析与文本切块：从真实文件到可检索片段</h1>
+    <p class="lede">本课目标：告别手写 DOCS 列表，学会从真实的 PDF、Markdown 文件中提取文本，并用正确的切块策略把它们变成高质量的可检索片段。</p>
+  </header>
+
+  <section>
+    <h2>你今天要获得的能力</h2>
+    <p>学完本课，你将拥有一个 <code>loader.py</code> 模块，它能：</p>
+    <ul>
+      <li>自动识别文件类型，从 PDF、Markdown、HTML 中提取纯文本</li>
+      <li>用 <strong>token 感知</strong>的切块策略把长文档切成语义完整的片段</li>
+      <li>控制 chunk_size 和 overlap，理解它们如何影响检索质量</li>
+      <li>替换掉第 2 课的硬编码 <code>DOCS</code> 列表，让你的 RAG 系统真正"吃"进真实文件</li>
+    </ul>
+    <p>这是从"玩具 Demo"到"企业可用原型"的关键一步。真实企业的知识库不会是一个 Python 列表——它们是成百上千个 PDF、网页和文档。</p>
+    <p class="small">主推荐阅读：<a href="https://python.langchain.com/docs/concepts/text_splitters/">LangChain Text Splitters 概念</a>、<a href="https://github.com/openai/tiktoken">tiktoken 仓库</a>、<a href="https://github.com/jsvine/pdfplumber">pdfplumber 文档</a>。速查表：<a href="../reference/0003-doc-parsing-chunking-cheatsheet.html">文档解析与切块速查表</a>。</p>
+  </section>
+
+  <section>
+    <h2>为什么这一步如此重要？</h2>
+    <p>回顾第 2 课，你的知识库长这样：</p>
+    <pre><code>DOCS = [
+    {"id":"doc-001", "text":"7 天无理由退货仅适用于未拆封商品...", "source":"return-policy.md", ...},
+    {"id":"doc-002", "text":"普通发票在订单完成后 24 小时内...", "source":"invoice-policy.md", ...},
+    # ... 每条都是一句话，完美切好
+]</code></pre>
+    <p>但真实场景下，你的 <code>return-policy.md</code> 可能是 2000 字的长文，<code>product-manual.pdf</code> 可能是 50 页。如果你把整篇文档当成一个 chunk 扔进向量库，会发生什么？</p>
+
+    <div class="panel warn">
+      <h3>长文档不切块的三个后果</h3>
+      <ol>
+        <li><strong>检索精度低</strong>：用户问"退货要几天"，整篇 2000 字的政策文档向量里混杂了退货、换货、退款、发票等所有主题，语义被稀释，相似度算不准。</li>
+        <li><strong>上下文浪费</strong>：LLM 的上下文窗口是有限的。你把 2000 字的整篇文档塞进提示词，但其中只有 200 字和用户问题相关——剩下 1800 字白白消耗 token 预算。</li>
+        <li><strong>来源引用粗糙</strong>：你只能说"来自 return-policy.md"，无法精确到"第三章第 2 条"。审计追溯要求你定位到具体段落。</li>
+      </ol>
+    </div>
+
+    <p>切块的目标很明确：<strong>把长文档切成语义自包含的小片段，让每个片段聚焦一个主题，提高检索精度，降低上下文噪音，同时保留来源追溯能力。</strong></p>
+  </section>
+
+  <section>
+    <h2>第一步：从文件中提取文本</h2>
+    <p>不同格式需要不同的解析器。下面是三种最常见企业文档格式的解析方法。</p>
+
+    <h3>Markdown —— 最简单</h3>
+    <p>Markdown 本质是纯文本，直接读即可。如果你想保留结构信息（标题层级），可以用 <code>mistune</code> 或 <code>markdown-it</code> 解析 AST，但初版直接按行读就够了。</p>
+    <pre><code>def load_markdown(filepath: str) -> str:
+    with open(filepath, "r", encoding="utf-8") as f:
+        return f.read()</code></pre>
+
+    <h3>PDF —— 最常用也最容易踩坑</h3>
+    <p>PDF 是二进制格式，文本提取面临几个挑战：文字可能嵌入在图片里（需要 OCR）、双栏布局可能打乱阅读顺序、表格数据可能变成碎片文本。对中文客服文档来说，最常用的方案是 <code>pdfplumber</code>：它能较好地保留布局信息，提取准确率比 PyPDF2 高，API 也直观。</p>
+    <pre><code># 先安装：pip install pdfplumber
+import pdfplumber
+
+def load_pdf(filepath: str) -> str:
+    text_parts = []
+    with pdfplumber.open(filepath) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text_parts.append(page_text)
+    return "\n\n".join(text_parts)</code></pre>
+    <p class="small">如果 PDF 是扫描件（图片型 PDF），你需要 OCR。推荐 <code>pytesseract</code> + <code>pdf2image</code>，但那是另一个话题；企业知识库通常以电子文档为主，先假定可提取文本。</p>
+
+    <h3>HTML —— 网页和导出文档</h3>
+    <p>用 <code>BeautifulSoup</code> 提取可见文本，去掉 script/style 标签噪音。</p>
+    <pre><code># 先安装：pip install beautifulsoup4
+from bs4 import BeautifulSoup
+
+def load_html(filepath: str) -> str:
+    with open(filepath, "r", encoding="utf-8") as f:
+        soup = BeautifulSoup(f.read(), "html.parser")
+    # 去掉不可见元素
+    for tag in soup(["script", "style", "nav", "footer", "header"]):
+        tag.decompose()
+    return soup.get_text(separator="\n", strip=True)</code></pre>
+
+    <div class="panel info">
+      <h3>格式检测策略</h3>
+      <p>生产环境用文件扩展名 + MIME 类型双重检测。本课 Demo 用扩展名就够了：</p>
+      <pre><code>LOADERS = {
+    ".md":   load_markdown,
+    ".txt":  load_markdown,   # 纯文本复用同一函数
+    ".pdf":  load_pdf,
+    ".html": load_html,
+    ".htm":  load_html,
+}</code></pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>第二步：切块策略 —— 本课的核心</h2>
+    <p>切块不是简单地把文档按字符数等分。好的切块策略要同时满足三个目标：</p>
+    <ol>
+      <li><strong>语义完整</strong>：一个 chunk 应该是一个自包含的信息单元——读者不需要看其他 chunk 就能理解它的意思。</li>
+      <li><strong>大小可控</strong>：每个 chunk 的 token 数应该在 embedding 模型的最佳范围内（text-embedding-3-small 单次最多 8191 tokens，但 300-800 tokens 的片段检索效果最好）。</li>
+      <li><strong>边界自然</strong>：切在段落、句子边界上，而不是把一个词拦腰截断。</li>
+    </ol>
+
+    <h3>策略 A：固定大小切块（Fixed-size Chunking）</h3>
+    <p>最直观的方法：设定 chunk_size（字符数），从头到尾滑动窗口，相邻窗口之间保留 overlap。</p>
+
+    <div class="combo">
+      <div class="panel">
+        <h3>无 Overlap</h3>
+        <pre style="font-size:13px;">文档: "ABC 公司退货政策。7 天无理由
+退换仅适用于未拆封商品。质量问题
+可在 15 天内申请售后检测。检测确
+认后可全额退款。退款到账 1-3 天。"
+
+chunk_size=30, overlap=0:
+
+┌──────────────────────┐
+│ Chunk 1: "ABC 公司退 │
+│ 货政策。7 天无理由退 │
+│ 换仅适用于未拆封商品 │
+│ 。"                   │
+└──────────────────────┘
+┌──────────────────────┐
+│ Chunk 2: "质量问题可 │
+│ 在 15 天内申请售后检 │  ← "质量"和上一句的
+│ 测。检测确认后可全额 │    关系被切断了
+│ 退款。退款到账 1-3天"│
+└──────────────────────┘</pre>
+      </div>
+      <div class="panel good">
+        <h3>有 Overlap（推荐）</h3>
+        <pre style="font-size:13px;">文档: 同上
+
+chunk_size=30, overlap=10:
+
+┌──────────────────────┐
+│ Chunk 1: "ABC 公司退 │
+│ 货政策。7 天无理由退 │
+│ 换仅适用于未拆封商品 │
+│ 。"                   │
+└──────────────────────┘
+          ┌──────────────┴──────────────┐
+          │ Chunk 2: "未拆封商品。质量 │
+          │ 问题可在 15 天内申请售后检 │  ← overlap 保留了
+          │ 测。检测确认后可全额退款。"│    上下文衔接
+          └─────────────────────────────┘</pre>
+      </div>
+    </div>
+
+    <p><strong>Overlap 的作用</strong>：当用户的答案恰好跨在两个 chunk 的边界上时，overlap 给检索提供了"冗余"，让关键信息至少完整地出现在一个 chunk 里。代价是存储和 embedding 计算量增加，但通常 10-20% 的 overlap 是值得的。</p>
+
+    <h3>策略 B：Token 感知切块（Token-aware Chunking）</h3>
+    <p>字符数不等于 token 数。中文尤其如此：一个中文字 ≈ 1.5-2 个 token（在 cl100k_base 编码下），一个英文单词 ≈ 1-2 个 token。用字符数估算 token 数会有 50% 以上的误差。用 <code>tiktoken</code> 精确计算：</p>
+    <pre><code># pip install tiktoken
+import tiktoken
+
+encoder = tiktoken.get_encoding("cl100k_base")  # text-embedding-3-small 使用的编码
+
+def chunk_by_tokens(text: str, chunk_size: int = 500, overlap: int = 100) -> list[dict]:
+    """按 token 数切块，返回带位置信息的片段列表。"""
+    tokens = encoder.encode(text)
+    chunks = []
+    i = 0
+    chunk_idx = 0
+    while i < len(tokens):
+        chunk_tokens = tokens[i:i + chunk_size]
+        chunk_text = encoder.decode(chunk_tokens)
+        chunks.append({
+            "text": chunk_text,
+            "chunk_index": chunk_idx,
+            "token_count": len(chunk_tokens),
+            "char_start": len(encoder.decode(tokens[:i])) if i > 0 else 0,
+        })
+        i += (chunk_size - overlap)
+        chunk_idx += 1
+    return chunks</code></pre>
+
+    <p class="small">cl100k_base 是 text-embedding-3-small/3-large 和 GPT-4 系列使用的编码。如果你换用其他 embedding 模型（如 Cohere、BGE），需要用对应的 tokenizer。<a href="https://github.com/openai/tiktoken">tiktoken 文档</a> 列出了所有可用编码。</p>
+
+    <h3>策略 C：语义边界切块（Semantic Chunking）</h3>
+    <p>最理想但也最复杂的策略：在段落、句子、甚至语义转折点处切分。基本思路是：</p>
+    <ol>
+      <li>先按段落（<code>\n\n</code>）切分</li>
+      <li>如果段落太长，再按句子（<code>。！？</code>）切分</li>
+      <li>合并短片段直到接近 chunk_size</li>
+      <li>在片段之间保留 overlap</li>
+    </ol>
+
+    <pre><code>import re
+
+def chunk_semantic(text: str, max_tokens: int = 500, overlap_sentences: int = 1) -> list[str]:
+    """按段落→句子层级切分，合并短片段至 max_tokens 附近。"""
+    # 1. 按段落切分
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+
+    # 2. 段落内部按句子切分（中英文句号）
+    sentences = []
+    for para in paragraphs:
+        sents = re.split(r'(?<=[。！？.!?])\s*', para)
+        sentences.extend([s.strip() for s in sents if s.strip()])
+
+    # 3. 合并句子到目标 token 数
+    chunks = []
+    current = []
+    current_tokens = 0
+    for sent in sentences:
+        sent_tokens = len(encoder.encode(sent))
+        if current_tokens + sent_tokens > max_tokens and current:
+            chunks.append(" ".join(current))
+            # 保留 overlap_sentences 个句子作为下一个 chunk 的开头
+            current = current[-overlap_sentences:] if len(current) > overlap_sentences else []
+            current_tokens = sum(len(encoder.encode(s)) for s in current)
+        current.append(sent)
+        current_tokens += sent_tokens
+    if current:
+        chunks.append(" ".join(current))
+    return chunks</code></pre>
+
+    <div class="panel info">
+      <h3>三种策略的选择指南</h3>
+      <table>
+        <tr><th>策略</th><th>适用场景</th><th>实现复杂度</th><th>检索质量</th></tr>
+        <tr><td>固定字符</td><td>快速原型、英文文档</td><td>⭐</td><td>⭐⭐</td></tr>
+        <tr><td>Token 感知</td><td>精准控制上下文预算</td><td>⭐⭐</td><td>⭐⭐⭐</td></tr>
+        <tr><td>语义边界</td><td>中文长文、政策/法规文档</td><td>⭐⭐⭐</td><td>⭐⭐⭐⭐</td></tr>
+      </table>
+      <p class="small">生产环境通常结合使用：语义边界做第一层切分，token 感知做第二层大小控制。LangChain 的 <code>RecursiveCharacterTextSplitter</code> 和 LlamaIndex 的 <code>SentenceSplitter</code> 都是这个思路的工业级实现。</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>第三步：完整代码 —— loader.py</h2>
+    <p>现在把所有东西整合到一个模块里。创建 <code>loader.py</code>，它会：遍历 <code>docs/</code> 目录 → 识别文件类型 → 提取文本 → 切块 → 返回结构化数据。</p>
+    <pre><code>"""
+loader.py — 文档加载与切块模块
+支持格式：.md / .txt / .pdf / .html
+切块策略：语义边界 + token 感知（中文友好）
+"""
+import os, re
+from typing import Optional
+
+# ── 可选依赖：按需导入 ──────────────────────
+try:
+    import pdfplumber
+    HAS_PDF = True
+except ImportError:
+    HAS_PDF = False
+
+try:
+    from bs4 import BeautifulSoup
+    HAS_HTML = True
+except ImportError:
+    HAS_HTML = False
+
+try:
+    import tiktoken
+    HAS_TIKTOKEN = True
+    ENCODER = tiktoken.get_encoding("cl100k_base")
+except ImportError:
+    HAS_TIKTOKEN = False
+    ENCODER = None
+
+
+# ── 1. 格式解析器 ──────────────────────────
+def load_text(filepath: str) -> str:
+    with open(filepath, "r", encoding="utf-8") as f:
+        return f.read()
+
+def load_pdf(filepath: str) -> str:
+    if not HAS_PDF:
+        raise ImportError("需要安装 pdfplumber: pip install pdfplumber")
+    parts = []
+    with pdfplumber.open(filepath) as pdf:
+        for page in pdf.pages:
+            t = page.extract_text()
+            if t:
+                parts.append(t)
+    return "\n\n".join(parts)
+
+def load_html(filepath: str) -> str:
+    if not HAS_HTML:
+        raise ImportError("需要安装 beautifulsoup4: pip install beautifulsoup4")
+    with open(filepath, "r", encoding="utf-8") as f:
+        soup = BeautifulSoup(f.read(), "html.parser")
+    for tag in soup(["script", "style", "nav", "footer"]):
+        tag.decompose()
+    return soup.get_text(separator="\n", strip=True)
+
+LOADERS = {
+    ".md": load_text, ".txt": load_text,
+    ".pdf": load_pdf, ".html": load_html, ".htm": load_html,
+}
+
+
+# ── 2. 切块引擎 ────────────────────────────
+def count_tokens(text: str) -> int:
+    """用 tiktoken 精确计数；未安装时用字符数近似（中文约 0.6 token/字）。"""
+    if HAS_TIKTOKEN:
+        return len(ENCODER.encode(text))
+    return int(len(text) * 0.6)  # 粗略估算
+
+
+def split_sentences(text: str) -> list[str]:
+    """按中英文句号、问号、感叹号切分句子。"""
+    raw = re.split(r'(?<=[。！？.!?])\s*', text)
+    return [s.strip() for s in raw if s.strip()]
+
+
+def chunk_semantic(
+    text: str,
+    chunk_tokens: int = 500,
+    overlap_sentences: int = 1,
+) -> list[dict]:
+    """
+    语义边界切块：
+    段落 → 句子 → 合并到目标 token 数 → 保留句子级 overlap
+    返回 [{"text":..., "chunk_index":..., "token_count":..., "char_start":...}]
+    """
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    all_sentences = []
+    for para in paragraphs:
+        all_sentences.extend(split_sentences(para))
+
+    chunks = []
+    buf, buf_tokens = [], 0
+    char_cursor = 0
+    chunk_idx = 0
+
+    # 记录每个句子的字符位置
+    sent_positions = []
+    pos = 0
+    for s in all_sentences:
+        # 在原文中定位（近似）
+        idx = text.find(s, pos)
+        sent_positions.append(idx if idx >= 0 else pos)
+        pos = (idx if idx >= 0 else pos) + len(s)
+
+    for si, sent in enumerate(all_sentences):
+        st = count_tokens(sent)
+        if buf_tokens + st > chunk_tokens and buf:
+            chunk_text = "".join(buf)
+            chunks.append({
+                "text": chunk_text,
+                "chunk_index": chunk_idx,
+                "token_count": buf_tokens,
+                "char_start": sent_positions[max(0, si - len(buf))],
+            })
+            # Overlap: 保留最后 N 句
+            keep = min(overlap_sentences, len(buf))
+            buf = buf[-keep:] if keep > 0 else []
+            buf_tokens = sum(count_tokens(s) for s in buf)
+            chunk_idx += 1
+        buf.append(sent)
+        buf_tokens += st
+
+    # 最后一个 chunk
+    if buf:
+        chunk_text = "".join(buf)
+        chunks.append({
+            "text": chunk_text,
+            "chunk_index": chunk_idx,
+            "token_count": buf_tokens,
+            "char_start": sent_positions[max(0, len(all_sentences) - len(buf))],
+        })
+
+    return chunks
+
+
+# ── 3. 统一入口 ────────────────────────────
+def load_docs(
+    docs_dir: str = "./docs",
+    chunk_tokens: int = 500,
+    overlap_sentences: int = 1,
+) -> list[dict]:
+    """
+    主函数：遍历 docs_dir，加载所有支持的文件，切块后返回。
+    返回格式与第 2 课的 DOCS 兼容：
+    [{"id": "return-policy.md#0", "text": "...", "source": "return-policy.md",
+      "chunk_index": 0, "token_count": 480, "format": "md"}, ...]
+    """
+    results = []
+    for fname in sorted(os.listdir(docs_dir)):
+        _, ext = os.path.splitext(fname)
+        loader = LOADERS.get(ext.lower())
+        if not loader:
+            continue
+
+        fpath = os.path.join(docs_dir, fname)
+        print(f"📄 加载 {fname} ...")
+        try:
+            raw_text = loader(fpath)
+        except Exception as e:
+            print(f"  ⚠️ 跳过 {fname}: {e}")
+            continue
+
+        chunks = chunk_semantic(raw_text, chunk_tokens, overlap_sentences)
+        for ch in chunks:
+            results.append({
+                "id": f"{fname}#{ch['chunk_index']}",
+                "text": ch["text"],
+                "source": fname,
+                "chunk_index": ch["chunk_index"],
+                "token_count": ch["token_count"],
+                "char_start": ch["char_start"],
+                "format": ext.lower(),
+            })
+
+        print(f"  ✓ 切出 {len(chunks)} 个片段（共 {count_tokens(raw_text)} tokens）")
+
+    return results
+
+
+# ── CLI 预览（方便调试）────────────────────
+if __name__ == "__main__":
+    docs = load_docs()
+    for d in docs:
+        print(f"\n{'─'*60}")
+        print(f"📌 {d['id']}  |  {d['token_count']} tokens  |  {d['source']}")
+        print(f"{d['text'][:200]}...")</code></pre>
+  </section>
+
+  <section>
+    <h2>第四步：接入已有的 RAG 管道</h2>
+    <p>现在改造第 2 课的 <code>demo.py</code>，把硬编码的 <code>DOCS</code> 替换为 <code>loader.load_docs()</code>。改动非常小：</p>
+    <pre><code># demo_v2.py —— 改动部分
+import loader  # 新增
+
+# 把原来手写的 DOCS = [...] 替换为：
+DOCS = loader.load_docs(docs_dir="./docs", chunk_tokens=500, overlap_sentences=1)
+
+# 其余代码完全不变！ingest_docs()、retrieve()、answer() 照旧使用
+# 唯一注意：现在 DOCS 的 id 是 "文件名#chunk序号"，source 是文件名</code></pre>
+
+    <div class="panel good">
+      <h3>为什么要保持接口兼容？</h3>
+      <p>因为 <code>ingest_docs()</code> 只关心三样东西：<code>text</code>（要向量化的文本）、<code>id</code>（去重用）、<code>source</code>（追溯用）。<code>loader.load_docs()</code> 返回的字典格式和原来手写的 <code>DOCS</code> 完全对齐，只是多了 <code>chunk_index</code>、<code>token_count</code>、<code>format</code> 等额外字段。这是好的模块设计——关注点分离：loader 负责"从哪来、怎么切"，管道负责"怎么存、怎么查"。</p>
+    </div>
+
+    <h3>准备测试文档</h3>
+    <p>在你的项目目录下创建 <code>docs/</code> 文件夹，放几个真实文件进去。以下是一个 Markdown 示例：</p>
+    <pre><code># docs/return-policy.md
+
+## 退货政策
+
+### 无理由退货
+7 天无理由退货仅适用于未拆封商品。顾客需自行承担退货运费。
+已拆封商品不支持无理由退货，但质量问题除外。
+
+### 质量问题处理
+已拆封但存在质量问题的商品，可在签收后 15 天内申请售后检测。
+检测确认质量问题后，可选择全额退款或换货。
+退款将在检测确认后 1-3 个工作日内原路退回。
+
+### 不予退货的情况
+- 超过 15 天未申请的订单
+- 人为损坏的商品
+- 定制类和非标品
+- 已使用的个人护理产品
+
+## 换货政策
+换货仅限同款同色。如需换其他款式，请先退货再重新下单。
+换货运费由商家承担（质量问题）或顾客承担（非质量问题）。</code></pre>
+    <p>再准备一个 PDF（随便找一个中文 PDF 放进去），然后运行：</p>
+    <pre><code>python loader.py          # 先看切块效果
+python demo_v2.py         # 再跑完整 RAG 管道</code></pre>
+  </section>
+
+  <section>
+    <h2>练习</h2>
+
+    <h3>练习一：切块参数敏感度</h3>
+    <p>同一个文档，<code>chunk_tokens=200</code> vs <code>chunk_tokens=800</code>，切出来的片段数量和质量有什么不同？</p>
+    <div class="quiz" id="quiz1">
+      <button data-answer="wrong">chunk 越大越好，片段越多检索越精确</button>
+      <button data-answer="right">chunk 太小会丢失上下文，太大则语义稀释；300-800 tokens 是中文文档的经验甜区</button>
+      <button data-answer="wrong">chunk 大小只影响性能，不影响检索质量</button>
+    </div>
+    <p class="feedback" id="feedback1"></p>
+
+    <h3>练习二：动手实验</h3>
+    <div class="task panel">
+      <h3>对比实验：overlap=0 vs overlap=1</h3>
+      <p>在 <code>loader.py</code> 里，先用 <code>overlap_sentences=0</code> 切分你的文档，挑一个跨 chunk 边界的问题去检索，看答案是否完整。再改成 <code>overlap_sentences=1</code>，重新入库和检索，对比答案质量。</p>
+      <p>关键观察：如果一条退货政策被切在了"质量问题"和"15 天内"之间，没有 overlap 时模型可能只看到半句话，回答不完整。有 overlap 后完整的条款至少出现在一个 chunk 中。</p>
+    </div>
+
+    <h3>练习三：调参与观察</h3>
+    <div class="task panel">
+      <h3>参数矩阵实验</h3>
+      <p>用同一批文档，跑三组参数：</p>
+      <table>
+        <tr><th>组</th><th>chunk_tokens</th><th>overlap_sentences</th><th>预期观察</th></tr>
+        <tr><td>A</td><td>200</td><td>0</td><td>片段很小，检索精确但上下文不足</td></tr>
+        <tr><td>B</td><td>500</td><td>1</td><td>平衡点，大多数场景表现最好</td></tr>
+        <tr><td>C</td><td>1000</td><td>2</td><td>片段很大，容易混入无关信息</td></tr>
+      </table>
+      <p>每组参数跑完后，问同样的问题（建议 3-5 个），记录：检索到了几个 chunk、第一个 chunk 是否包含答案、回答是否完整。把观察结果发给我，我会帮你分析。</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>中文切块的特殊注意事项</h2>
+    <div class="panel info">
+      <h3>五个中文特有的坑</h3>
+      <ol>
+        <li><strong>没有空格分词</strong>：英文可以按空格和单词边界切，中文不行。按字符切会导致词被拆散（"退货政策"→"退货"+"政策"），但实践中 embedding 模型对子词级别的中文语义有足够的鲁棒性，字符级切块不影响检索质量。真正该担心的是句子边界。</li>
+        <li><strong>句号不统一</strong>：中文句号是 <code>。</code>（全角），英文是 <code>.</code>（半角）。你的切句正则要同时匹配：<code>[。！？.!?]</code>。</li>
+        <li><strong>引号和括号</strong>：中文使用全角引号" "和括号（），它们内部的句号不应视为句子边界。但初版可以接受这个瑕疵——生产环境用专业分句器（如 <code>jieba</code> 的 <code>cut_sentence</code> 或 spaCy 的 <code>zh_core_web_sm</code>）。</li>
+        <li><strong>tiktoken 对中文的效率</strong>：cl100k_base 编码下，1 个中文字 ≈ 1.5-2 个 token，1 个英文单词 ≈ 1-2 个 token。所以 500 tokens 的 chunk 大约能装 250-350 个中文字。这意味着中文文档比英文文档<strong>信息密度更高</strong>——同样 token 预算下，中文能塞更多语义。</li>
+        <li><strong>数字和英文字母混排</strong>：企业文档常见"型号 ABC-123"、"2024 年第 3 季度"等。tiktoken 对混合文本的 token 计数比纯中文更费 token（因为 ASCII 字符每个 1 token，中文每个 1.5-2 token）。</li>
+      </ol>
+    </div>
+  </section>
+
+  <section>
+    <h2>你现在应该记住的五句话</h2>
+    <ol>
+      <li><strong>不切块的 RAG 是低精度的 RAG</strong>。整篇文档向量化 = 语义被稀释，检索命中全靠运气。</li>
+      <li><strong>切块的第一原则是语义完整</strong>。宁可在句子边界处多留几个 token，也不要把一个完整的意思拦腰截断。</li>
+      <li><strong>Overlap 是检索质量的保险</strong>。10-20% 的 overlap 能极大降低"答案被切在边界上"的风险。</li>
+      <li><strong>用 tiktoken 而不是 len() 来估算 token 数</strong>。中文字符数和 token 数的误差可达 50%+。</li>
+      <li><strong>loader 和管道是正交的</strong>。切块策略改变时，embedding、存储、检索、生成的代码不需要动——这是好的模块边界。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>接下来学什么</h2>
+    <p>现在你的 RAG 系统能"吃"真实文件了。但你会立刻发现新问题：</p>
+    <ul>
+      <li><strong>检索质量不稳定</strong>：有时候前 3 个结果里没有正确答案。怎么办？</li>
+      <li><strong>只有一个 embedding 模型</strong>：text-embedding-3-small 对中文好吗？有没有更好的选择？</li>
+      <li><strong>没有量化指标</strong>：你只能靠眼睛判断"检索结果好不好"。企业环境需要 Recall@K、MRR 等自动化指标。</li>
+    </ul>
+    <p>下一课将进入 <strong>检索质量评估与调优</strong>：引入评估指标、多模型对比、以及重排序（re-ranking）技术——这是 RAG 从"能跑"到"好用"的关键一步。</p>
+    <p>复习用速查表：<a href="../reference/0003-doc-parsing-chunking-cheatsheet.html">文档解析与切块速查表</a>。回顾上一课：<a href="0002-rag-python-demo.html">第 2 课：Python Demo</a>。回顾基础概念：<a href="0001-rag-minimum-loop.html">第 1 课：RAG 最小闭环</a>。</p>
+    <p class="small">有任何不清楚的地方——切块效果不好、某个格式解析失败、不知道怎么调参数——直接问我。把切块输出贴给我，我帮你分析。</p>
+  </section>
+</main>
+
+<script>
+  function setupQuiz(quizId, feedbackId) {
+    const quiz = document.getElementById(quizId);
+    const feedback = document.getElementById(feedbackId);
+    quiz.addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      [...quiz.querySelectorAll("button")].forEach((item) => {
+        item.classList.remove("correct", "wrong");
+      });
+      if (button.dataset.answer === "right") {
+        button.classList.add("correct");
+        feedback.textContent = "✓ 正确。chunk 太小（<200 tokens）丢失上下文，太大（>1000 tokens）语义稀释影响检索精度。300-800 tokens 是经验甜区。";
+        feedback.style.color = "var(--good)";
+      } else {
+        button.classList.add("wrong");
+        feedback.textContent = "再想想：chunk 太小会切断语义，太大会混入无关信息。大小直接影响检索精度，不只是性能问题。";
+        feedback.style.color = "var(--bad)";
+      }
+    });
+  }
+  setupQuiz("quiz1", "feedback1");
+</script>
+</body>
+</html>

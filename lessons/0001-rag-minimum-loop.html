@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 1 课：RAG 最小闭环</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink:#172033; --muted:#667085; --line:#d7dde8; --accent:#0f766e;
+      --accent2:#8b5e00; --good:#116329; --bad:#a10e25; --bg:#fbfcfe; --panel:#fff;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-serif, Georgia, "Noto Serif SC", serif; color:var(--ink); background:var(--bg); line-height:1.7; }
+    main { max-width: 900px; margin: 0 auto; padding: 42px 22px 70px; }
+    header { margin-bottom: 30px; }
+    .kicker { font: 700 13px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--accent); text-transform: uppercase; letter-spacing: .08em; }
+    h1 { font-size: clamp(32px, 5vw, 54px); line-height:1.08; margin: 10px 0 12px; letter-spacing:0; }
+    h2 { font-size: 23px; margin: 34px 0 12px; padding-bottom: 6px; border-bottom:1px solid var(--line); }
+    h3 { font-size: 18px; margin: 20px 0 8px; }
+    p { margin: 0 0 14px; }
+    a { color:#0b5cad; text-decoration-thickness:1px; text-underline-offset:3px; }
+    .lede { color:var(--muted); max-width:760px; font-size:18px; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin:16px 0; }
+    .flow { display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:10px; margin:16px 0; }
+    .node { border:1px solid var(--line); background:#fff; border-radius:8px; padding:12px; min-height:94px; }
+    .node strong { display:block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--accent); margin-bottom:4px; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { background:#eef6f5; padding:2px 5px; border-radius:4px; }
+    pre { overflow:auto; background:#f6f8fa; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:16px; font-size:14px; line-height:1.55; }
+    .small { color:var(--muted); font-size:14px; }
+    .quiz { display:grid; gap:10px; margin-top:12px; }
+    button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:11px 13px; text-align:left; font: 600 15px/1.35 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; color:var(--ink); cursor:pointer; }
+    button:hover { border-color:var(--accent); }
+    button.correct { border-color:var(--good); background:#edf8ef; color:var(--good); }
+    button.wrong { border-color:var(--bad); background:#fff0f2; color:var(--bad); }
+    .feedback { min-height:26px; font-weight:700; }
+    .task { border-left:4px solid var(--accent2); padding-left:14px; }
+    ul { padding-left:22px; }
+    @media print { body { background:white; } main { max-width:none; padding:20mm; } .panel, .node { break-inside: avoid; } button { border-color:#aaa; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="kicker">Lesson 0001</div>
+    <h1>RAG 最小闭环：从客服文档到可追溯答案</h1>
+    <p class="lede">本课只解决一件事：你要能说清楚并手工演练一个客服问答 RAG Demo 的核心数据流。下一课再开始写 Python Demo。</p>
+  </header>
+
+  <section>
+    <h2>你今天要获得的能力</h2>
+    <p>学完后，你应该能把“客户提问”变成一个可解释流程：先从知识库找证据，再让 LLM 基于证据回答，而不是让模型凭记忆编答案。RAG 的原始论文把这种思路描述为把生成模型和外部非参数化记忆结合起来，用检索结果增强生成能力；这正适合企业知识库，因为文档会更新，答案还要能追溯来源。</p>
+    <p class="small">主推荐阅读：<a href="https://arxiv.org/abs/2005.11401">Lewis et al., Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks</a>。API 与工具参考见 <a href="https://platform.openai.com/docs/guides/embeddings">OpenAI embeddings</a>、<a href="https://developers.openai.com/api/docs/guides/text">OpenAI text generation</a>、<a href="https://docs.trychroma.com/docs/overview/getting-started">Chroma getting started</a>。</p>
+  </section>
+
+  <section>
+    <h2>核心模型</h2>
+    <div class="flow" aria-label="RAG data flow">
+      <div class="node"><strong>Chunk</strong>客服资料切成小片段</div>
+      <div class="node"><strong>Embed</strong>片段转成向量</div>
+      <div class="node"><strong>Store</strong>向量和原文进向量库</div>
+      <div class="node"><strong>Retrieve</strong>问题取回相似片段</div>
+      <div class="node"><strong>Generate</strong>LLM 基于片段回答</div>
+      <div class="node"><strong>Cite</strong>返回来源和置信边界</div>
+    </div>
+    <p>OpenAI 文档把 embeddings 用于搜索、聚类、推荐等相似度任务；Chroma 的集合用于存储 embeddings、documents 和 metadata，并支持按相似度查询。对客服问答来说，这意味着“客户问题”不必和 FAQ 原文完全同字，只要语义接近，就能检索到候选答案。</p>
+  </section>
+
+  <section>
+    <h2>客服问答里的一个最小例子</h2>
+    <div class="panel">
+      <h3>知识片段</h3>
+      <p><strong>doc-001</strong>：7 天无理由退货仅适用于未拆封商品。已拆封但存在质量问题的商品，可在签收后 15 天内申请售后检测。</p>
+      <p><strong>doc-002</strong>：普通发票会在订单完成后 24 小时内开具。增值税专用发票需要提交公司抬头、税号、地址、电话和开户行信息。</p>
+      <p><strong>doc-003</strong>：会员积分不能直接提现吗？不能。积分只能用于兑换优惠券、配件或指定服务。</p>
+    </div>
+    <p>用户问：“拆开用了发现质量问题，还能退吗？” 关键词不完全一样，但语义上接近 <code>doc-001</code>。RAG 系统应该先检索到它，再回答：如果是质量问题，可在签收后 15 天内申请售后检测；不要泛化成“任何拆封都能退”。</p>
+  </section>
+
+  <section>
+    <h2>代码形状先看懂，不急着跑</h2>
+    <p>下一课我们会把它变成可运行 Demo。现在你只需要理解每行属于闭环里的哪一步。</p>
+    <pre><code>import chromadb
+
+client = chromadb.Client()
+collection = client.get_or_create_collection("support_qa")
+
+collection.upsert(
+    ids=["doc-001", "doc-002"],
+    documents=[
+        "7 天无理由退货仅适用于未拆封商品。已拆封但存在质量问题的商品，可在签收后 15 天内申请售后检测。",
+        "普通发票会在订单完成后 24 小时内开具。增值税专用发票需要提交公司抬头、税号、地址、电话和开户行信息。"
+    ],
+    metadatas=[
+        {"source": "return-policy.md", "topic": "refund"},
+        {"source": "invoice-policy.md", "topic": "invoice"}
+    ],
+)
+
+results = collection.query(
+    query_texts=["拆开用了发现质量问题，还能退吗？"],
+    n_results=2,
+)
+
+print(results["documents"])
+print(results["metadatas"])</code></pre>
+    <p class="small">Chroma 的入门文档说明：集合可以存储 documents、embeddings 和 metadata，并返回最相似的结果。Demo 初期可以让 Chroma 自动处理 embedding；后面再替换为你指定的 embedding 模型。</p>
+  </section>
+
+  <section>
+    <h2>练习：判断每一步</h2>
+    <p>下面三个按钮里，哪个最准确描述了 RAG 和普通 LLM 问答的关键区别？</p>
+    <div class="quiz" id="quiz1">
+      <button data-answer="wrong">模型参数更多，输出更长</button>
+      <button data-answer="right">回答前先检索外部证据</button>
+      <button data-answer="wrong">必须训练专属大模型才行</button>
+    </div>
+    <p class="feedback" id="feedback1"></p>
+
+    <div class="task panel">
+      <h3>手工检索任务</h3>
+      <p>不运行代码，只看上面的三个知识片段。请在脑中回答：用户问“公司专票需要什么资料？”时，应该检索哪个 doc？答案应该引用什么来源？</p>
+      <p class="small">你可以把答案发给我，我会检查你的检索判断和回答边界。</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>你现在应该记住的三句话</h2>
+    <ul>
+      <li>Embedding 是为了把文本变成可比较的向量；不是为了直接生成答案。</li>
+      <li>向量数据库负责“找相似证据”；LLM 负责“把证据组织成回答”。</li>
+      <li>企业级 RAG 的底线是可追溯：没有证据就拒答，有证据就引用来源。</li>
+    </ul>
+    <p>复习用速查表：<a href="../reference/0001-rag-minimum-loop-cheatsheet.html">RAG 最小闭环速查表</a>。有任何不清楚的地方，直接问我；下一课会把这个闭环写成一个本地 Python Demo。</p>
+  </section>
+</main>
+<script>
+  const quiz = document.getElementById("quiz1");
+  const feedback = document.getElementById("feedback1");
+  quiz.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    [...quiz.querySelectorAll("button")].forEach((item) => {
+      item.classList.remove("correct", "wrong");
+    });
+    if (button.dataset.answer === "right") {
+      button.classList.add("correct");
+      feedback.textContent = "正确。RAG 的关键是先找证据，再让模型基于证据回答。";
+      feedback.style.color = "var(--good)";
+    } else {
+      button.classList.add("wrong");
+      feedback.textContent = "再想一步：关键不是模型更大，而是回答前有没有检索外部证据。";
+      feedback.style.color = "var(--bad)";
+    }
+  });
+</script>
+</body>
+</html>
