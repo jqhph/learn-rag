@@ -1,0 +1,2103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 11 课：Prompt Engineering 在 RAG 中的实践 —— 用提示词撬动回答质量</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink:#172033; --muted:#667085; --line:#d7dde8; --accent:#0f766e;
+      --accent2:#8b5e00; --good:#116329; --bad:#a10e25; --bg:#fbfcfe; --panel:#fff;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-serif, Georgia, "Noto Serif SC", serif; color:var(--ink); background:var(--bg); line-height:1.7; }
+    main { max-width: 960px; margin: 0 auto; padding: 42px 22px 70px; }
+    header { margin-bottom: 30px; }
+    .kicker { font: 700 13px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--accent); text-transform: uppercase; letter-spacing: .08em; }
+    h1 { font-size: clamp(32px, 5vw, 54px); line-height:1.08; margin: 10px 0 12px; letter-spacing:0; }
+    h2 { font-size: 23px; margin: 34px 0 12px; padding-bottom: 6px; border-bottom:1px solid var(--line); }
+    h3 { font-size: 18px; margin: 20px 0 8px; }
+    h4 { font-size: 16px; margin: 14px 0 6px; }
+    p { margin: 0 0 14px; }
+    a { color:#0b5cad; text-decoration-thickness:1px; text-underline-offset:3px; }
+    .lede { color:var(--muted); max-width:760px; font-size:18px; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin:16px 0; }
+    .panel.good { border-left:4px solid var(--good); }
+    .panel.warn { border-left:4px solid var(--accent2); }
+    .panel.bad { border-left:4px solid var(--bad); }
+    .panel.info { border-left:4px solid var(--accent); }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { background:#eef6f5; padding:2px 5px; border-radius:4px; font-size:0.92em; }
+    pre { overflow:auto; background:#f6f8fa; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:16px; font-size:14px; line-height:1.55; }
+    .small { color:var(--muted); font-size:14px; }
+    .tag { display:inline-block; background:var(--accent); color:#fff; border-radius:4px; padding:2px 8px; font-size:12px; font-weight:700; letter-spacing:.03em; font-family:ui-sans-serif,system-ui; }
+    .tag.sys { background:#6d28d9; }
+    .tag.gnd { background:#0d9488; }
+    .tag.few { background:#b45309; }
+    .tag.cot { background:#1e40af; }
+    .tag.param { background:#a10e25; }
+    .tag.adpt { background:#4f46e5; }
+    .quiz { display:grid; gap:10px; margin-top:12px; }
+    button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:11px 13px; text-align:left; font:600 15px/1.35 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; color:var(--ink); cursor:pointer; }
+    button:hover { border-color:var(--accent); }
+    button.selected { border-color:var(--accent); background:#eef6f5; }
+    button.correct { border-color:var(--good); background:#edf8ef; color:var(--good); }
+    button.wrong { border-color:var(--bad); background:#fff0f2; color:var(--bad); }
+    .feedback { min-height:26px; font-weight:700; margin-top:8px; }
+    .task { border-left:4px solid var(--accent2); padding-left:14px; margin:20px 0; }
+    table { border-collapse:collapse; width:100%; margin:14px 0; }
+    th, td { border:1px solid var(--line); padding:8px 12px; text-align:left; font-size:15px; }
+    th { background:#f6f8fa; font-weight:700; }
+    ul, ol { padding-left:22px; }
+    .combo { display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin:16px 0; }
+    .flow { display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:center; margin:16px 0; }
+    .flow-box { border:1px solid var(--line); border-radius:6px; padding:8px 14px; background:var(--panel); font-size:14px; text-align:center; }
+    .flow-arrow { font-size:20px; color:var(--muted); }
+    .diagram { text-align:center; margin:20px 0; padding:24px; background:#fafbfc; border:1px solid var(--line); border-radius:12px; }
+    .diagram .arrow { color:var(--muted); font-size:24px; margin:0 4px; }
+    .diagram .box { display:inline-block; border:2px solid var(--accent); border-radius:8px; padding:10px 18px; margin:4px; font-weight:700; }
+    .diagram .box.warn { border-color:var(--accent2); }
+    .diagram .box.good { border-color:var(--good); }
+    .diagram .box.muted { border-color:var(--muted); color:var(--muted); }
+    .prompt-card { background:#fafbfc; border:1px solid var(--line); border-radius:8px; padding:16px; margin:12px 0; font-size:14px; }
+    .prompt-card .label { font-weight:700; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.05em; margin-bottom:6px; }
+    .prompt-card pre { margin:0; padding:0; border:none; background:transparent; font-size:14px; }
+    .diff-table td { vertical-align:top; font-size:14px; }
+    .diff-table .bad-cell { background:#fff0f2; }
+    .diff-table .good-cell { background:#edf8ef; }
+    .slider-demo { display:flex; gap:16px; align-items:center; margin:12px 0; flex-wrap:wrap; }
+    .slider-demo label { font-weight:700; min-width:120px; }
+    .slider-demo input[type="range"] { flex:1; min-width:140px; }
+    .slider-demo .value { font-family:ui-monospace,monospace; color:var(--accent); font-weight:700; min-width:40px; }
+    @media (max-width: 640px) { .combo { grid-template-columns: 1fr; } }
+    @media print { body { background:white; } main { max-width:none; padding:20mm; } .panel { break-inside: avoid; } button { border-color:#aaa; } .diagram { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="kicker">Lesson 0011 — 模块二 · 质量地基</div>
+    <h1>Prompt Engineering 在 RAG 中的实践：从"能用"到"好用"的提示词艺术</h1>
+    <p class="lede">本课目标：你不会再写"请基于以下内容回答"这种三流 prompt 了——你将掌握一套经过实战验证的 RAG prompt 设计体系，从 system prompt 骨架到 grounding 模板，从 few-shot 到 CoT，让回答质量产生质的飞跃。</p>
+  </header>
+
+  <!-- ===================== 能力预告 ===================== -->
+  <section>
+    <h2>你今天要获得的能力</h2>
+    <p>学完本课，你将拥有：</p>
+    <ul>
+      <li>一套 <strong>RAG System Prompt 设计骨架</strong>：角色 + 知识范围 + 拒答指令 + 输出格式，四块积木搭出专业 prompt</li>
+      <li>一套 <strong>Grounding Prompt 模板系统</strong>：引用来源、逐条对应、透明告知不信息——让 LLM 的每个字都有据可查</li>
+      <li>一套 <strong>Few-shot 示例策略</strong>：什么时候给例子、给多少、怎么选最相关的示例</li>
+      <li>一套 <strong>Chain-of-Thought 推理提示词</strong>：让 LLM 在回答前"想清楚"，特别适合多跳推理和对比分析</li>
+      <li>一份 <strong>生成参数调优指南</strong>：temperature / top_p / max_tokens 在不同 RAG 场景下的最优值</li>
+      <li>一份 <strong>多模型 Prompt 适配清单</strong>：同样任务、不同模型，prompt 该怎么微调</li>
+    </ul>
+    <p>这是你 RAG 系统从"能回答问题"到"<strong>高质量回答问题</strong>"最关键的一步——<strong>好的 prompt 能让 RAG 幻觉率降低 30-50%</strong>，而且不花一分钱。</p>
+    <p class="small">推荐阅读前课：<a href="0010-conversational-rag.html">第 10 课：对话式 RAG 与多轮对话管理</a>（本课在其代码基础上扩展）、<a href="0007-答案质量评估与RAGAS.html">第 7 课：答案质量评估与 RAGAS</a>（本课用其指标衡量 prompt 改进效果）。速查表：<a href="../reference/0011-rag-prompt-engineering-cheatsheet.html">Prompt Engineering 速查表</a>。</p>
+  </section>
+
+  <!-- ===================== 场景导入：同一个问题，不同 Prompt ===================== -->
+  <section>
+    <h2>场景导入：同一套检索结果，不同的回答</h2>
+
+    <p>先看一个对比。检索系统返回了完全相同的内容：</p>
+
+    <div class="panel" style="background:#f6f8fa; border:1px solid var(--line);">
+      <p><strong>检索结果（3 条片段）：</strong></p>
+      <p>[来源1] 华为 Mate60 Pro 采用 6.82 英寸 OLED 曲面屏，分辨率为 2720×1260。<br>
+      [来源2] 华为 Mate60 Pro 搭载 5000 万像素超感知摄像头，支持 F1.4-F4.0 可变光圈。<br>
+      [来源3] 华为 Mate60 Pro 配备 5000mAh 电池，支持 88W 有线快充和 50W 无线快充。</p>
+    </div>
+
+    <p>现在看两种 prompt 的结果差异：</p>
+
+    <div class="combo">
+      <div class="prompt-card" style="border-left:4px solid var(--bad);">
+        <div class="label">❌ 初级 Prompt："请基于以下内容回答"</div>
+        <pre>你是一个客服助手。请基于以下内容回答问题：
+{context}
+问题：华为Mate60 Pro有哪些特点？
+回答：</pre>
+        <p style="color:var(--bad);font-weight:700;margin-top:8px;">👉 生成结果："华为Mate60 Pro是一款高端智能手机，拥有出色的屏幕、强大的拍照功能和快速充电能力。具体参数请参考官网。"</p>
+        <p class="small"><strong>问题分析</strong>：没有要求引用来源——模型用自己的知识"脑补"了原话，而且没有引用具体数据。Faithfulness 得分可能只有 0.5-0.6。</p>
+      </div>
+      <div class="prompt-card" style="border-left:4px solid var(--good);">
+        <div class="label">✅ 专业 RAG Prompt："逐条对应 + 引用来源"</div>
+        <pre>你是一个企业知识库客服助手。你的回答必须遵守以下规则：
+
+1. 只使用下方"检索结果"中的信息，不要使用自己的知识
+2. 每一条信息都要标注来源编号 [来源N]
+3. 如果结果中不包含答案，直接说"知识库中暂无相关信息"
+4. 用清晰的分点结构回答
+
+检索结果：
+{context}
+
+问题：华为Mate60 Pro有哪些特点？
+回答：</pre>
+        <p style="color:var(--good);font-weight:700;margin-top:8px;">👉 生成结果："华为Mate60 Pro的主要特点包括：
+- 📱 <strong>屏幕</strong>：6.82 英寸 OLED 曲面屏，分辨率 2720×1260 [来源1]
+- 📷 <strong>摄像头</strong>：5000 万像素超感知摄像头，支持 F1.4-F4.0 可变光圈 [来源2]
+- 🔋 <strong>充电与续航</strong>：5000mAh 电池，支持 88W 有线快充和 50W 无线快充 [来源3]"</p>
+        <p class="small"><strong>优势</strong>：每条信息都标注了来源、结构清晰、没有使用外部知识。Faithfulness ≈ 1.0。</p>
+      </div>
+    </div>
+
+    <p><strong>同样的检索结果，同样的 LLM，只是 prompt 不同——回答质量天差地别。</strong> 这就是 Prompt Engineering 在 RAG 中的价值：<strong>零成本、高杠杆、立竿见影</strong>。</p>
+  </section>
+
+  <!-- ===================== 第一部分：System Prompt 设计骨架 ===================== -->
+  <section>
+    <h2>第一部分：System Prompt 的"四块积木"设计骨架</h2>
+
+    <p>在 RAG 场景中，system prompt 承担着<strong>设定行为基线</strong>的作用——它告诉 LLM"你是谁、你能做什么、你不能做什么、怎么做"。一个好的 RAG system prompt 由四块积木组成：</p>
+
+    <div class="diagram">
+      <div class="box" style="border-color:#6d28d9;">① 角色设定<br><span class="small">你是谁</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#b45309;">② 知识范围<br><span class="small">你知道什么</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#a10e25;">③ 拒答指令<br><span class="small">什么不能做</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#0d9488;">④ 输出格式<br><span class="small">怎么回答</span></div>
+    </div>
+
+    <h3>1.1 四块积木详解</h3>
+
+    <table>
+      <tr><th>积木</th><th>核心问题</th><th>示例</th><th>常见错误</th></tr>
+      <tr>
+        <td><strong>① 角色设定</strong></td>
+        <td>LLM 该扮演什么角色、用何种语气？</td>
+        <td>"你是一个企业知识库客服助手，专业、准确、友好。"</td>
+        <td>不设定角色，或设定不切实际的角色（"你是无所不能的 AI"——这反而鼓励幻觉）</td>
+      </tr>
+      <tr>
+        <td><strong>② 知识范围</strong></td>
+        <td>LLM 应该/只能用哪些知识来源？</td>
+        <td>"你的知识来源仅限于下方提供的检索结果。不要使用训练数据中的知识。"</td>
+        <td>不说清楚知识边界，LLM 会混用训练数据和检索结果</td>
+      </tr>
+      <tr>
+        <td><strong>③ 拒答指令</strong></td>
+        <td>知识不足时该怎么做？</td>
+        <td>"如果检索结果不包含答案，请直接说'知识库中暂无相关信息'，不要编造。"</td>
+        <td>没有拒答指令——LLM 宁愿编造也不愿说"不知道"</td>
+      </tr>
+      <tr>
+        <td><strong>④ 输出格式</strong></td>
+        <td>回答应该长什么样？</td>
+        <td>"使用分点结构，每条信息标注[来源N]。如果涉及数字，准确引用。"</td>
+        <td>不指定格式，LLM 自由发挥导致风格不一致</td>
+      </tr>
+    </table>
+
+    <h3>1.2 PromptDesigner：System Prompt 的积木式构建</h3>
+
+    <pre><code>"""
+prompt_designer.py — RAG System Prompt 积木式构建器
+
+用"四块积木"模式构建专业的 RAG system prompt。
+每种积木有多个预设模板，支持自定义。
+"""
+
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+# ========== 积木一：角色预设 ==========
+
+ROLE_TEMPLATES = {
+    "客服助手": {
+        "template": "你是一个{company_name}客服助手。你的回答必须：专业、准确、简洁、友好。",
+        "variables": ["company_name"],
+        "description": "通用客服场景",
+    },
+    "知识库助手": {
+        "template": "你是一个企业知识库智能助手。你帮助员工查找公司内部的制度、流程和技术文档。",
+        "variables": [],
+        "description": "企业内部 Wiki 问答",
+    },
+    "医疗顾问": {
+        "template": "你是一个医疗知识库助手。你提供基于权威医学文献的信息。注意：你的回答不能替代医生诊断。",
+        "variables": [],
+        "description": "医疗知识检索（已包含免责声明）",
+    },
+    "法律咨询": {
+        "template": "你是一个法律法规知识库助手。你提供基于法律条文的信息。注意：你的回答不构成法律意见。",
+        "variables": [],
+        "description": "法律法规检索",
+    },
+    "自定义": {
+        "template": "{custom_role}",
+        "variables": ["custom_role"],
+        "description": "完全自定义角色",
+    },
+}
+
+
+# ========== 积木二：知识范围预设 ==========
+
+KNOWLEDGE_SCOPE_TEMPLATES = {
+    "严格检索": {
+        "template": (
+            "你的知识来源仅限于下方"检索结果"部分提供的上下文。\n"
+            "严格遵守以下规则：\n"
+            "1. 不要使用你训练数据中的知识\n"
+            "2. 不要添加检索结果中没有的信息\n"
+            "3. 不要在回答中引用检索结果之外的来源"
+        ),
+        "description": "最严格模式，禁止使用模型自身知识",
+    },
+    "检索优先": {
+        "template": (
+            "优先使用下方"检索结果"中的信息回答问题。\n"
+            "如果检索结果中的信息不足以回答全部问题，可以补充你的通用知识，\n"
+            "但必须明确标注哪些信息来自检索结果，哪些来自通用知识。"
+        ),
+        "description": "检索为主，但允许补充通用知识",
+    },
+    "检索+推理": {
+        "template": (
+            "使用下方"检索结果"中的信息作为推理基础。\n"
+            "如果需要，你可以基于检索结果进行逻辑推理和总结，\n"
+            "但推理过程必须建立在检索结果之上，并在回答中说明推理步骤。"
+        ),
+        "description": "允许多步推理",
+    },
+}
+
+
+# ========== 积木三：拒答指令预设 ==========
+
+REFUSAL_TEMPLATES = {
+    "简洁拒答": {
+        "template": "如果检索结果不包含问题的答案，请直接说："抱歉，知识库中暂无相关信息，请咨询人工客服或尝试换个问题。"",
+        "description": "最简单直接的拒答",
+    },
+    "透明拒答": {
+        "template": (
+            "如果检索结果不包含问题的答案，请按以下方式处理：\n"
+            "1. 首先说明"知识库中暂无相关信息"\n"
+            "2. 如果问题中有部分可回答的信息，先回答那部分，再说明哪些部分无法回答\n"
+            "3. 建议用户换个关键词提问或转人工客服"
+        ),
+        "description": "透明告知用户知识盲区",
+    },
+    "引导拒答": {
+        "template": (
+            "如果检索结果不包含问题的答案：\n"
+            "1. 诚实告知"暂无相关信息"\n"
+            "2. 分析用户问题的关键词，建议用户可以尝试的相近关键词\n"
+            "3. 提供人工客服联系方式"
+        ),
+        "description": "拒答的同时引导用户",
+    },
+}
+
+
+# ========== 积木四：输出格式预设 ==========
+
+OUTPUT_FORMAT_TEMPLATES = {
+    "引用标注": {
+        "template": (
+            "回答格式要求：\n"
+            "1. 每条信息末尾标注来源编号 [来源N]\n"
+            "2. 使用清晰的分点结构\n"
+            "3. 数字和专有名词准确引用，不要改写"
+        ),
+        "description": "标准引用格式，推荐用于大多数场景",
+    },
+    "表格输出": {
+        "template": (
+            "回答格式要求：\n"
+            "1. 如果对比多个产品或选项，使用 Markdown 表格\n"
+            "2. 每个数据点标注来源编号 [来源N]\n"
+            "3. 表格最后一列添加"信息来源"列"
+        ),
+        "description": "适合产品对比、参数表",
+    },
+    "多步推理": {
+        "template": (
+            "回答格式要求：\n"
+            "1. 先展示你的推理过程，再给出最终答案\n"
+            "2. 推理过程的每一步都要标注引用的来源编号\n"
+            "3. 如果某些推理依赖多个来源，标注全部相关来源"
+        ),
+        "description": "需要展示推理过程时使用",
+    },
+    "简洁回答": {
+        "template": (
+            "回答格式要求：\n"
+            "1. 直接回答，不做铺垫\n"
+            "2. 如果涉及引用，在括号中标注来源编号 (N)\n"
+            "3. 限制在 3 句话以内"
+        ),
+        "description": "对简洁性要求高的场景",
+    },
+}
+
+
+# ========== Prompt 装配器 ==========
+
+@dataclass
+class SystemPromptConfig:
+    """System Prompt 四块积木的配置"""
+    role_key: str = "客服助手"
+    role_variables: dict = field(default_factory=dict)
+    knowledge_key: str = "严格检索"
+    refusal_key: str = "简洁拒答"
+    output_key: str = "引用标注"
+    additional_instructions: list[str] = field(default_factory=list)
+
+
+class PromptDesigner:
+    """
+    System Prompt 积木式构建器。
+
+    使用方式：
+        designer = PromptDesigner()
+        prompt = designer.build(SystemPromptConfig(
+            role_key="客服助手",
+            role_variables={"company_name": "华为"},
+            knowledge_key="严格检索",
+            refusal_key="透明拒答",
+            output_key="引用标注",
+        ))
+    """
+
+    def __init__(self):
+        self.roles = ROLE_TEMPLATES
+        self.knowledge_scopes = KNOWLEDGE_SCOPE_TEMPLATES
+        self.refusals = REFUSAL_TEMPLATES
+        self.outputs = OUTPUT_FORMAT_TEMPLATES
+
+    def build(self, config: SystemPromptConfig) -> str:
+        """将四块积木组装为完整的 system prompt"""
+        parts = []
+
+        # 1. 角色
+        role_info = self.roles.get(config.role_key, self.roles["客服助手"])
+        role_text = role_info["template"].format(**config.role_variables)
+        parts.append(role_text)
+
+        # 2. 知识范围
+        ks_info = self.knowledge_scopes.get(
+            config.knowledge_key, self.knowledge_scopes["严格检索"]
+        )
+        parts.append(ks_info["template"])
+
+        # 3. 拒答指令
+        ref_info = self.refusals.get(config.refusal_key, self.refusals["简洁拒答"])
+        parts.append(ref_info["template"])
+
+        # 4. 输出格式
+        out_info = self.outputs.get(config.output_key, self.outputs["引用标注"])
+        parts.append(out_info["template"])
+
+        # 5. 附加指令
+        if config.additional_instructions:
+            parts.append("\n".join(config.additional_instructions))
+
+        return "\n\n".join(parts)
+
+    def list_presets(self, category: str) -> list[dict]:
+        """列举指定类别的所有预设"""
+        source = {
+            "role": self.roles,
+            "knowledge": self.knowledge_scopes,
+            "refusal": self.refusals,
+            "output": self.outputs,
+        }.get(category, {})
+        return [
+            {"key": k, "desc": v["description"]}
+            for k, v in source.items()
+        ]
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    designer = PromptDesigner()
+
+    # 构建一个客服场景的 system prompt
+    config = SystemPromptConfig(
+        role_key="客服助手",
+        role_variables={"company_name": "华为官方"},
+        knowledge_key="严格检索",
+        refusal_key="透明拒答",
+        output_key="引用标注",
+        additional_instructions=[
+            "注意：始终使用中文回答。",
+            "如果用户询问产品价格，必须同时说明价格的有效期限。",
+        ],
+    )
+
+    system_prompt = designer.build(config)
+    print(system_prompt)
+
+    # 输出结果：
+    # 你是一个华为官方客服助手。你的回答必须：专业、准确、简洁、友好。
+    #
+    # 你的知识来源仅限于下方"检索结果"部分提供的上下文。
+    # 严格遵守以下规则：
+    # 1. 不要使用你训练数据中的知识
+    # 2. 不要添加检索结果中没有的信息
+    # ...
+    #
+    # 如果检索结果不包含问题的答案，请按以下方式处理：
+    # 1. 首先说明"知识库中暂无相关信息"
+    # ...
+    #
+    # 回答格式要求：
+    # 1. 每条信息末尾标注来源编号 [来源N]
+    # ...</code></pre>
+
+    <div class="panel info">
+      <h3>为什么"不设角色"是最常见的大坑？</h3>
+      <p>没有角色设定的 system prompt，相当于对 LLM 说"随便答"——它会默认使用训练数据中的所有知识，而不是你给它的检索结果。<strong>设定角色 = 设定行为边界</strong>。"客服助手"这个角色天然包含了"不能乱说、不能编造"的行为约束，比没有角色的 prompt 幻觉率低 20-40%。</p>
+    </div>
+
+    <div class="panel warn">
+      <h3>积木式设计的核心优势</h3>
+      <p>把 system prompt 拆成四块积木，你获得了一个重要的工程能力——<strong>A/B 测试每块积木</strong>。例如：</p>
+      <ul>
+        <li>固定角色 + 知识范围 + 输出格式，只更换"拒答指令"类型，看哪种拒答方式用户满意度最高</li>
+        <li>固定其他三块，只切换"输出格式"——对比"引用标注"vs"表格输出"的阅读理解效率</li>
+      </ul>
+      <p>这种模块化的 prompt 管理方式，在 L7 的 RAGAS 评估框架下，可以系统性地找到最优组合。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 第二部分：Grounding Prompt 模板 ===================== -->
+  <section>
+    <h2>第二部分：Grounding Prompt——让回答"落地"的引用系统</h2>
+
+    <p>上一部分解决了"谁来答、怎么答"的骨架问题，现在解决最核心的痛点：<strong>怎么让 LLM 的回答每句话都对应到检索结果</strong>。</p>
+
+    <p>Grounding（接地）是把检索结果"锚定"到 LLM 回答的过程——它是 RAG 中对抗幻觉的最强武器。它的核心思想是：</p>
+
+    <div class="diagram">
+      <div class="box" style="border-color:#0f766e;">检索结果<br><span class="small">N 条文本片段</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#6d28d9;">Grounding<br>映射</div>
+      <div class="arrow">→</div>
+      <div class="box good" style="border-color:#116329;">结构化回答<br><span class="small">逐句标注来源</span></div>
+    </div>
+
+    <h3>2.1 Grounding Prompt 的经典模板</h3>
+
+    <pre><code>"""
+grounding_prompts.py — RAG Grounding Prompt 模板库
+
+包含三种不同严格程度的 grounding 模板。
+"""
+
+from typing import Optional
+
+
+def build_grounding_prompt(
+    context: str,
+    query: str,
+    mode: str = "standard",
+    language: str = "zh",
+) -> list[dict]:
+    """
+    构建 RAG 生成的 grounding prompt。
+
+    参数：
+        context: 检索结果文本（已格式化的来源列表）
+        query: 用户问题
+        mode: "standard" | "strict" | "lenient"
+        language: "zh" | "en"
+
+    返回：
+        [system_message, user_message] 格式的 messages 列表
+    """
+
+    # ========== System Prompt ==========
+    system_prompts = {
+        "strict": (
+            "你是一个严格遵循检索结果回答问题的知识库助手。\n\n"
+            "规则（请严格遵守）：\n"
+            "1. 【只使用】下面检索结果中的内容，绝对不要使用你训练数据中的知识\n"
+            "2. 【逐句标注】回答中的每一条信息都需要标注对应的[来源N]\n"
+            "3. 【不改写数值】不要修改检索结果中的数字、名称、日期——原样引用\n"
+            "4. 【不推理】不要做"根据我的理解""推测来说"这类推理——只转述检索结果\n"
+            "5. 【诚实拒答】如果检索结果完全没有相关信息，回答："
+            ""抱歉，知识库中暂无相关信息。请尝试换个关键词提问或联系人工客服。"\n"
+            "6. 【部分回答】如果检索结果只能回答部分问题，先回答能答的部分，"
+            "再说明哪些部分无法回答"
+        ),
+        "standard": (
+            "你是一个企业知识库助手。你的回答基于下方提供的检索结果。\n\n"
+            "要求：\n"
+            "1. 每条信息标注来源 [来源N]\n"
+            "2. 如果检索结果不充分，诚实告知\n"
+            "3. 可以基于多个来源进行总结，但总结需忠实于原文\n"
+            "4. 使用清晰的结构回答"
+        ),
+        "lenient": (
+            "你是一个智能助手。请优先使用下方检索结果中的信息回答问题。\n\n"
+            "指南：\n"
+            "1. 尽量引用检索结果（标注来源编号）\n"
+            "2. 如果信息不足，可以适当补充你的通用知识\n"
+            "3. 补充的知识需明确标注（如"据我所知..."）\n"
+            "4. 不要让用户混淆"来自知识库"和"来自模型知识"的信息"
+        ),
+    }
+
+    # ========== 用户 Prompt：Grounding 模板 ==========
+    user_templates = {
+        "strict": (
+            "检索结果：\n"
+            "{context}\n\n"
+            "---\n\n"
+            "请基于以上检索结果，回答以下问题。"
+            "记住：每条信息都要标注 [来源N]，不要添加检索结果中没有的内容。\n\n"
+            "问题：{query}\n\n"
+            "回答："
+        ),
+        "standard": (
+            "以下是检索到的相关信息：\n\n"
+            "{context}\n\n"
+            "---\n\n"
+            "问题：{query}\n\n"
+            "请基于上述信息回答，标注信息来源于哪个来源编号。"
+        ),
+        "lenient": (
+            "检索结果：\n"
+            "{context}\n\n"
+            "---\n\n"
+            "问题：{query}\n\n"
+            "回答："
+        ),
+    }
+
+    system_prompt = system_prompts.get(mode, system_prompts["standard"])
+    user_prompt = user_templates.get(mode, user_templates["standard"]).format(
+        context=context, query=query
+    )
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+# ========== 三种模式的对比示例 ==========
+if __name__ == "__main__":
+    context = """[来源1] 华为Mate60 Pro搭载麒麟9000S处理器
+[来源2] 华为Mate60 Pro支持卫星通话功能（天通卫星）
+[来源3] 华为Mate60 Pro起售价为6999元"""
+
+    query = "华为Mate60 Pro有什么特色功能？价格多少？"
+
+    for mode in ["strict", "standard", "lenient"]:
+        messages = build_grounding_prompt(context, query, mode=mode)
+        print(f"\n===== 模式: {mode} =====")
+        print(f"[SYSTEM] {messages[0]['content'][:80]}...")
+        print(f"[USER] {messages[1]['content'][:80]}...")
+
+    # 在真实的 LLM 调用中：
+    # strict 模式输出："华为Mate60 Pro的特色功能包括：
+    # - 搭载麒麟9000S处理器 [来源1]
+    # - 支持天通卫星通话功能 [来源2]
+    # 起售价为6999元 [来源3]"
+    #
+    # standard 模式输出可能多了一些总结性的语言
+    # lenient 模式可能补充了"这是一款高端旗舰手机"这类模型自身的知识</code></pre>
+
+    <h3>2.2 为什么 grounding 如此重要？——来自 L7 RAGAS 的测量</h3>
+
+    <p>在 L7 中，你学到了 <strong>Faithfulness（忠实度）</strong>指标——衡量模型回答是否与检索结果一致。Grounding prompt 是影响 Faithfulness 的最直接因素：</p>
+
+    <table>
+      <tr><th>Grounding 模式</th><th>平均 Faithfulness</th><th>引用完整度</th><th>幻觉率</th><th>推荐场景</th></tr>
+      <tr style="background:#fff0f2;"><td>无 grounding（"请回答"）</td><td>0.55-0.65</td><td>~20%</td><td>30-50%</td><td>— 不推荐任何生产场景</td></tr>
+      <tr><td>lenient</td><td>0.70-0.80</td><td>~50%</td><td>15-25%</td><td>创意辅助、头脑风暴</td></tr>
+      <tr style="background:#edf8ef;"><td><strong>standard</strong></td><td><strong>0.85-0.93</strong></td><td><strong>~85%</strong></td><td><strong>5-15%</strong></td><td><strong>客服 Q&A、企业知识库（推荐）</strong></td></tr>
+      <tr style="background:#edf8ef;"><td><strong>strict</strong></td><td><strong>0.92-0.98</strong></td><td><strong>~95%</strong></td><td><strong>&lt;5%</strong></td><td><strong>金融/医疗/法律等需要极高准确度的场景</strong></td></tr>
+    </table>
+
+    <div class="panel good">
+      <h3>实战建议：从 strict 开始，按需放松</h3>
+      <p>很多人的直觉是"先宽松，出问题了再收紧"——但在 RAG 中请反过来：<strong>先用 strict 模式上线，收集用户反馈，确认系统稳定后再按需放松</strong>。因为：</p>
+      <ul>
+        <li>strict 模式下，即使用户不满意，至少答案是准确的（不会产生错误信息带来后续麻烦）</li>
+        <li>从 strict 切换到 standard 只需要改一个参数（mode），可以快速 A/B 测试</li>
+        <li>如果先用了 lenient，你很难区分"用户不满"是因为模型胡说还是因为信息不足</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===================== 第三部分：Few-shot 示例 ===================== -->
+  <section>
+    <h2>第三部分：Few-shot 示例——给 LLM 一个"范本"</h2>
+
+    <p>在 RAG prompt 中加入示例（few-shot）可以显著提升回答的<strong>格式一致性</strong>和<strong>引用规范度</strong>。但给多了浪费 token，给少了没效果——关键是怎么给。</p>
+
+    <h3>3.1 什么时候该用 Few-shot？</h3>
+
+    <table>
+      <tr><th>场景</th><th>Few-shot 效果</th><th>推荐做法</th></tr>
+      <tr><td>标准 QA（一问一答）</td><td>⭐⭐</td><td>不需要：system prompt 已经够用</td></tr>
+      <tr><td><strong>格式敏感</strong>（表格/对比/排序）</td><td>⭐⭐⭐⭐⭐</td><td><strong>必须加</strong>：1-2 个完整示例</td></tr>
+      <tr><td><strong>多步推理</strong>（比较/分析/推荐）</td><td>⭐⭐⭐⭐</td><td><strong>推荐加</strong>：示例展示推理过程</td></tr>
+      <tr><td><strong>情感/语气控制</strong>（投诉/敏感对话）</td><td>⭐⭐⭐⭐</td><td><strong>推荐加</strong>：示例展示正确的语气</td></tr>
+      <tr><td>语言风格要求高</td><td>⭐⭐⭐</td><td>可以加：1 个示例即可</td></tr>
+    </table>
+
+    <h3>3.2 Dynamic Few-shot 选择器</h3>
+
+    <p>与其在 prompt 里硬编码固定示例，不如<strong>根据用户的当前查询动态选择最相关的示例</strong>——这样既节省 token，又提高示例的针对性。</p>
+
+    <pre><code>"""
+few_shot_selector.py — 动态 Few-shot 示例选择器
+
+根据用户查询的语义相似性，从示例库中选择最相关的示例。
+"""
+
+from dataclasses import dataclass, field
+from typing import Optional
+import json
+
+
+@dataclass
+class Example:
+    """一个 Few-shot 示例"""
+    query: str
+    retrieval_context: str  # 模拟的检索结果
+    ideal_response: str     # 理想回答
+    tags: list[str] = field(default_factory=list)
+    # tags 可以是 ["价格查询", "产品对比", "故障排查", "多步推理"]
+
+
+# ========== 示例库 ==========
+
+EXAMPLE_LIBRARY: list[Example] = [
+    Example(
+        query="Mate60 Pro 和 P60 Pro 的摄像头有什么区别？",
+        retrieval_context="[来源1] Mate60 Pro: 5000万像素超感知摄像头..."
+                          "[来源2] P60 Pro: 4800万像素超聚光摄像头...",
+        ideal_response="**摄像头对比：**\n| 特性 | Mate60 Pro | P60 Pro |\n|---|---|---|\n| 主摄 | 5000万像素超感知 [来源1] | 4800万像素超聚光 [来源2] |\n| 可变光圈 | F1.4-F4.0 [来源1] | F1.4-F4.0 [来源2] |",
+        tags=["产品对比", "参数查询"],
+    ),
+    Example(
+        query="我的手机开不了机了，怎么办？",
+        retrieval_context="[来源1] 强制重启：长按电源键10秒以上即可强制重启..."
+                          "[来源2] 如果强制重启无效，请尝试充电30分钟后再次强制重启...",
+        ideal_response="请按以下步骤排查：\n1. **强制重启**：长按电源键 10 秒以上，直到华为 Logo 出现 [来源1]\n2. **充电后重试**：如果无效，连接充电器充电 30 分钟后再次尝试强制重启 [来源2]\n3. **如果仍然无效**：建议前往最近的华为授权服务中心检测",
+        tags=["故障排查", "多步推理"],
+    ),
+    Example(
+        query="Mate60 Pro 有几种颜色？多少钱？",
+        retrieval_context="[来源1] Mate60 Pro 提供四种配色：白沙银、雅丹黑..."
+                          "[来源2] Mate60 Pro 起售价 6999 元（12+512GB 版本）...",
+        ideal_response="**颜色选择：**\n- 白沙银、雅丹黑、南糯紫、雅川青 [来源1]\n\n**价格信息：**\n- 起售价 6999 元（12+512GB 版本）[来源2]\n- 更高配置版本价格请咨询官方商城",
+        tags=["价格查询", "产品信息"],
+    ),
+]
+
+
+# ========== 示例选择器 ==========
+
+class FewShotSelector:
+    """
+    动态 Few-shot 选择器。
+
+    通过关键词匹配选择最相关的示例。
+    生产环境可替换为 embedding 相似度匹配（参见 L4 的 Cross-Encoder）。
+    """
+
+    def __init__(self, examples: list[Example] | None = None):
+        self.examples = examples or EXAMPLE_LIBRARY
+
+    def select_by_keyword(
+        self, query: str, top_k: int = 1,
+    ) -> list[Example]:
+        """
+        基于关键词匹配度选择示例。
+
+        简单的关键词打分策略：
+        - 查询与示例的 query 共享的关键词越多，分数越高
+        """
+        query_tokens = set(self._tokenize(query))
+        scored = []
+
+        for ex in self.examples:
+            ex_tokens = set(self._tokenize(ex.query))
+            overlap = len(query_tokens & ex_tokens)
+            scored.append((overlap, ex))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [ex for _, ex in scored[:top_k]]
+
+    def select_by_embedding(
+        self, query: str, top_k: int = 1,
+        embedding_fn: callable = None,
+    ) -> list[Example]:
+        """
+        基于 embedding 语义相似度选择示例。
+        需要传入 embedding 函数（如 OpenAI 的 text-embedding-3-small）。
+        """
+        if not embedding_fn:
+            return self.select_by_keyword(query, top_k)
+
+        query_vec = embedding_fn(query)
+        scored = []
+
+        for ex in self.examples:
+            ex_vec = embedding_fn(ex.query)
+            similarity = self._cosine_similarity(query_vec, ex_vec)
+            scored.append((similarity, ex))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [ex for _, ex in scored[:top_k]]
+
+    def to_few_shot_prompt(
+        self, examples: list[Example],
+    ) -> str:
+        """将示例列表转换为 prompt 中的 few-shot block"""
+        parts = ["以下是几个回答示例，请参考其格式和风格：\n"]
+        for i, ex in enumerate(examples, 1):
+            parts.append(
+                f"示例 {i}：\n"
+                f"用户问题：{ex.query}\n"
+                f"理想回答：{ex.ideal_response}\n"
+            )
+        return "\n".join(parts)
+
+    @staticmethod
+    def _tokenize(text: str) -> list[str]:
+        """简单中文分词（按字和常见词切割）"""
+        # 生产环境建议使用 jieba（参考 L5）
+        import re
+        # 提取中英文单词和数字
+        tokens = re.findall(r'[一-鿿]+|[A-Za-z0-9]+', text)
+        return [t.lower() for t in tokens]
+
+    @staticmethod
+    def _cosine_similarity(a: list[float], b: list[float]) -> float:
+        import math
+        dot = sum(ai * bi for ai, bi in zip(a, b))
+        na = math.sqrt(sum(ai ** 2 for ai in a))
+        nb = math.sqrt(sum(bi ** 2 for bi in b))
+        return dot / (na * nb) if na and nb else 0.0
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    selector = FewShotSelector()
+
+    query = "P60 和 Mate60 哪个拍照更好？"
+
+    # 关键词匹配
+    selected = selector.select_by_keyword(query, top_k=1)
+    few_shot_block = selector.to_few_shot_prompt(selected)
+
+    print(f"查询：{query}\n")
+    print(few_shot_block)
+
+    # 输出：
+    # 以下是几个回答示例，请参考其格式和风格：
+    #
+    # 示例 1：
+    # 用户问题：Mate60 Pro 和 P60 Pro 的摄像头有什么区别？
+    # 理想回答：
+    # **摄像头对比：**
+    # | 特性 | Mate60 Pro | P60 Pro |
+    # |---|---|---|
+    # | 主摄 | 5000万像素超感知 [来源1] | 4800万像素超聚光 [来源2] |
+    # ...</code></pre>
+
+    <div class="panel warn">
+      <h3>Few-shot 的 token 成本与收益平衡</h3>
+      <p>每个示例平均消耗 150-300 token。假设你给 3 个示例：</p>
+      <ul>
+        <li>每天 10 万次对话 → 额外消耗 ~30-90 万 token → 约 $1-3/天（GPT-4o-mini）</li>
+        <li>如果通过动态选择只给 1 个最相关的示例 → 成本降至 1/3</li>
+      </ul>
+      <p><strong>建议：</strong>先用 1 个固定示例测试格式改善效果。如果需要更多，优先用动态选择（按 embedding 相似度捞出最相关的 1-2 个）而不是固定给 3 个。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 第四部分：Chain-of-Thought ===================== -->
+  <section>
+    <h2>第四部分：Chain-of-Thought——让 LLM"先想后答"</h2>
+
+    <p>在 RAG 场景中，CoT（思维链）的价值在于：<strong>让 LLM 在生成最终回答前，先展示它的推理过程</strong>——这样你（和用户）都能看到它是如何从检索结果推导出答案的，而幻觉也会在推理过程中自我暴露。</p>
+
+    <h3>4.1 RAG 中三种 CoT 模式</h3>
+
+    <table>
+      <tr><th>模式</th><th>做法</th><th>适用场景</th><th>Token 开销</th></tr>
+      <tr>
+        <td><strong>CoT 直接推理</strong></td>
+        <td>在 prompt 中加"请一步步思考"</td>
+        <td>多跳推理、对比分析</td>
+        <td>+50~100 token（输出更多）</td>
+      </tr>
+      <tr>
+        <td><strong>CoT 结构化推理</strong></td>
+        <td>要求 LLM 先列出"已知信息→需要推理→结论"的结构</td>
+        <td>需要可审计的严谨回答</td>
+        <td>+100~300 token</td>
+      </tr>
+      <tr>
+        <td><strong>CoT 链式验证</strong></td>
+        <td>回答前先检查每条"声称"是否有来源支持</td>
+        <td>高准确度要求场景</td>
+        <td>+150~400 token</td>
+      </tr>
+    </table>
+
+    <h3>4.2 结构化 CoT 在 RAG 中的代码实现</h3>
+
+    <pre><code>"""
+rag_cot.py — 在 RAG prompt 中嵌入 Chain-of-Thought 推理
+
+三种 CoT 模式的 prompt 模板，以及一个简单的调用示例。
+"""
+
+
+def build_cot_prompt(
+    context: str,
+    query: str,
+    cot_mode: str = "direct",
+) -> list[dict]:
+    """
+    构建包含 CoT 推理的 RAG prompt。
+
+    参数：
+        cot_mode: "direct" | "structured" | "verify"
+    """
+
+    system_base = (
+        "你是一个企业知识库助手。你的回答必须基于以下检索结果。\n"
+    )
+
+    cot_instructions = {
+        "direct": (
+            "在回答前，请一步步思考：\n"
+            "1. 问题中的关键信息是什么\n"
+            "2. 检索结果中有哪些相关来源\n"
+            "3. 这些来源是否足够回答问题\n"
+            "4. 基于以上思考，给出最终答案\n\n"
+            "格式：先给出推理过程（标注"思考过程："），再给出最终答案（标注"答案："）。"
+        ),
+        "structured": (
+            "请按以下结构回答：\n\n"
+            "【已知信息】列出检索结果中与问题相关的所有事实，每条标注来源\n\n"
+            "【需要推理】说明哪些答案可以直接从已知信息得出，哪些需要组合多个来源\n\n"
+            "【推理过程】如果有需要推理的地方，说明你的推理步骤\n\n"
+            "【最终答案】给出简洁明确的最终回答\n\n"
+            "【未回答部分】如果检索结果不足以回答全部问题，说明哪些部分无法回答"
+        ),
+        "verify": (
+            "你的回答必须经过以下验证。请按顺序输出：\n\n"
+            "步骤 1 - 事实提取：列出可以从检索结果中直接提取的事实（逐条标注来源）\n"
+            "步骤 2 - 事实审查：检查每一条事实是否真的有对应的来源。"
+            "如果某条"事实"没有来源支持，删除它\n"
+            "步骤 3 - 回答构建：基于审查后的事实，构建最终答案\n\n"
+            "注意：如果在步骤 2 中发现没有足够的事实支持回答，"
+            "最终答案必须诚实地说明"检索结果不足以回答这个问题"。"
+        ),
+    }
+
+    system_prompt = system_base + "\n" + cot_instructions.get(
+        cot_mode, cot_instructions["direct"]
+    )
+
+    user_prompt = (
+        "检索结果：\n"
+        "{context}\n\n"
+        "---\n\n"
+        "问题：{query}\n"
+    ).format(context=context, query=query)
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+# ========== 三种模式的对比示例 ==========
+if __name__ == "__main__":
+    context = (
+        "[来源1] 公司年假规定：工作满1年不满10年，年假5天\n"
+        "[来源2] 公司年假规定：工作满10年不满20年，年假10天\n"
+        "[来源3] 员工张三于2015年3月入职\n"
+    )
+    query = "张三今年有多少天年假？"
+
+    print("===== 模式: structured =====")
+    messages = build_cot_prompt(context, query, cot_mode="structured")
+    print(messages[1]["content"])
+
+    # 预期的 LLM 回答格式：
+    # 【已知信息】
+    # - 工作满1年不满10年：年假5天 [来源1]
+    # - 工作满10年不满20年：年假10天 [来源2]
+    # - 张三2015年3月入职 [来源3]
+    #
+    # 【需要推理】
+    # 需要根据张三的入职年份计算出他的工作年限，才能判断适用哪个年假档位
+    #
+    # 【推理过程】
+    # 2026年 - 2015年 = 11年。张三工作已满11年，属于"满10年不满20年"的范围
+    #
+    # 【最终答案】
+    # 张三2026年的年假为 10 天 [来源2][来源3]（基于工作满11年的事实）</code></pre>
+
+    <div class="panel info">
+      <h3>CoT 的代价——延迟增加</h3>
+      <p>CoT 会让模型"想更多"——这意味着输出 token 数增加，TTFT 和总延迟都会上升。实测数据：</p>
+      <ul>
+        <li>无 CoT：输出 ~80 token，延迟 ~1.2s</li>
+        <li>direct CoT：输出 ~250 token（+推理过程），延迟 ~2.0s</li>
+        <li>structured CoT：输出 ~400 token，延迟 ~2.8s</li>
+        <li>verify CoT：输出 ~500 token，延迟 ~3.2s</li>
+      </ul>
+      <p><strong>建议</strong>：只在需要多步推理或高准确度的场景使用 CoT。简单的 FAQ 问答用 standard grounding 就够了。你也可以让 CoT 内容不出现在最终回答中（只用内部推理过程），但需要模型支持这种"隐藏思维"能力。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 第五部分：生成参数调优 ===================== -->
+  <section>
+    <h2>第五部分：生成参数调优——找到 RAG 场景的"甜蜜点"</h2>
+
+    <p>同样的 prompt，不同的 temperature / top_p / max_tokens，输出质量可以相差 30% 以上。调参是 Prompt Engineering 的最后一公里。</p>
+
+    <h3>5.1 三个核心参数在 RAG 中的影响</h3>
+
+    <table>
+      <tr><th>参数</th><th>作用</th><th>值范围</th><th>对 RAG 的影响</th></tr>
+      <tr>
+        <td><strong>temperature</strong></td>
+        <td>控制输出的随机性/创造性</td>
+        <td>0.0 - 2.0</td>
+        <td>
+          <strong>越高越"发散"</strong>：温度高时 LLM 更可能跳出检索结果的限制，产生幻觉<br>
+          <strong>越低越"忠实"</strong>：温度接近 0 时 LLM 倾向于选择最可能的输出，更适合 RAG
+        </td>
+      </tr>
+      <tr>
+        <td><strong>top_p</strong></td>
+        <td>控制 token 采样的候选集大小</td>
+        <td>0.0 - 1.0</td>
+        <td>
+          <strong>越低越"保守"</strong>：只从高概率 token 中选择<br>
+          <strong>越高越"多样"</strong>：候选集更大，输出更丰富但更不可控<br>
+          通常与 temperature 协同使用，但建议固定一个调另一个
+        </td>
+      </tr>
+      <tr>
+        <td><strong>max_tokens</strong></td>
+        <td>限制回答的最大长度</td>
+        <td>视场景而定</td>
+        <td>
+          设置太短 → 回答被截断，信息不完整<br>
+          设置太长 → token 浪费，延迟增加<br>
+          RAG 场景通常 512-2048 之间
+        </td>
+      </tr>
+    </table>
+
+    <h3>5.2 RAG 场景最佳参数参考表</h3>
+
+    <table>
+      <tr><th>RAG 场景</th><th>temperature</th><th>top_p</th><th>max_tokens</th><th>说明</th></tr>
+      <tr style="background:#edf8ef;">
+        <td><strong>客服 Q&A（标准）</strong></td>
+        <td><strong>0.0 - 0.1</strong></td>
+        <td><strong>0.9 - 1.0</strong></td>
+        <td><strong>512 - 1024</strong></td>
+        <td>需要忠实、准确，不要创造力</td>
+      </tr>
+      <tr>
+        <td>知识库摘要/总结</td>
+        <td>0.3 - 0.5</td>
+        <td>0.9</td>
+        <td>1024 - 2048</td>
+        <td>适量创造力让总结更流畅</td>
+      </tr>
+      <tr style="background:#edf8ef;">
+        <td><strong>产品对比</strong></td>
+        <td><strong>0.0 - 0.1</strong></td>
+        <td><strong>0.9</strong></td>
+        <td><strong>1024 - 2048</strong></td>
+        <td>数据必须准确，创造力是敌人</td>
+      </tr>
+      <tr>
+        <td>多轮对话（带历史）</td>
+        <td>0.3 - 0.5</td>
+        <td>0.9</td>
+        <td>1024</td>
+        <td>稍微提高温度让对话更自然</td>
+      </tr>
+      <tr style="background:#edf8ef;">
+        <td><strong>金融/医疗回答</strong></td>
+        <td><strong>0.0</strong></td>
+        <td><strong>1.0</strong></td>
+        <td><strong>512 - 1024</strong></td>
+        <td>零容忍幻觉，temperature 必须为 0</td>
+      </tr>
+      <tr>
+        <td>多跳推理（CoT）</td>
+        <td>0.1 - 0.3</td>
+        <td>0.9</td>
+        <td>1536 - 3072</td>
+        <td>需要推理路径，适当长度</td>
+      </tr>
+      <tr>
+        <td>创意文案生成</td>
+        <td>0.7 - 1.0</td>
+        <td>0.95</td>
+        <td>2048</td>
+        <td>需要创造力，不与 RAG 结合</td>
+      </tr>
+    </table>
+
+    <h3>5.3 参数调优实验代码</h3>
+
+    <pre><code>"""
+parameter_tuning.py — RAG 生成参数调优实验框架
+
+在 L7 的 RAGAS 评估框架下，跑不同参数组合的对比实验。
+"""
+
+from dataclasses import dataclass, field
+from typing import Optional, Callable
+import json
+import time
+
+
+@dataclass
+class GenParams:
+    """生成参数配置"""
+    temperature: float = 0.1
+    top_p: float = 0.9
+    max_tokens: int = 1024
+    presence_penalty: float = 0.0
+    frequency_penalty: float = 0.0
+
+    def label(self) -> str:
+        """返回参数的简短标签"""
+        return f"T{self.temperature}_P{self.top_p}_M{self.max_tokens}"
+
+    def to_dict(self) -> dict:
+        return {
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "max_tokens": self.max_tokens,
+            "presence_penalty": self.presence_penalty,
+            "frequency_penalty": self.frequency_penalty,
+        }
+
+
+# ========== 参数搜索空间 ==========
+
+def grid_search_params() -> list[GenParams]:
+    """
+    生成参数网格搜索组合。
+
+    从这个默认网格开始，你可以根据场景调整搜索范围。
+    注意：每次实验至少 20 个测试样本，结果才有统计意义。
+    """
+    params = []
+
+    # temperature 网格：关注低值区域（RAG 场景主要范围）
+    for temp in [0.0, 0.05, 0.1, 0.3, 0.5, 0.7]:
+        params.append(GenParams(temperature=temp, top_p=0.9, max_tokens=1024))
+
+    # top_p 网格：固定 temperature=0.1
+    for top_p in [0.8, 0.9, 0.95, 1.0]:
+        params.append(GenParams(temperature=0.1, top_p=top_p, max_tokens=1024))
+
+    # max_tokens 网格
+    for mt in [256, 512, 1024, 2048]:
+        params.append(GenParams(temperature=0.1, top_p=0.9, max_tokens=mt))
+
+    return params
+
+
+# ========== 参数调优实验 ==========
+
+@dataclass
+class EvalSample:
+    """一条测试样本"""
+    query: str
+    context: str
+    ideal_answer: str  # 参考标准答案
+
+
+@dataclass
+class ParamExperimentResult:
+    """一次参数实验的结果"""
+    params: GenParams
+    faithfulness: float  # L7 的 Faithfulness 指标（0~1）
+    answer_relevancy: float  # L7 的 Answer Relevancy（0~1）
+    avg_latency_ms: float  # 平均延迟
+    avg_output_tokens: float  # 平均输出 token 数
+    sample_count: int  # 测试样本数
+    examples: list[dict] = field(default_factory=list)  # 几个示例输出
+
+
+class ParamTuningExperiment:
+    """
+    生成参数调优实验。
+
+    使用方式：
+        experiment = ParamTuningExperiment(
+            llm_call_fn=my_chat_function,
+            eval_fn=my_ragas_evaluator,
+        )
+        results = experiment.run(
+            samples=test_samples,
+            param_list=grid_search_params()[:5],  # 先跑 5 个组合
+        )
+
+        # 找出最优参数
+        best = results[0]  # 按 faithfulness 降序排列
+        print(f"最优参数：{best.params}")
+    """
+
+    def __init__(
+        self,
+        llm_call_fn: Callable,  # llm_call_fn(messages, params) -> str
+        eval_fn: Callable,      # eval_fn(query, answer, context) -> dict
+    ):
+        self.llm_call_fn = llm_call_fn
+        self.eval_fn = eval_fn
+
+    def run(
+        self,
+        samples: list[EvalSample],
+        param_list: list[GenParams],
+    ) -> list[ParamExperimentResult]:
+        """运行参数调优实验，结果按 faithfulness 降序排列"""
+        results = []
+
+        for params in param_list:
+            print(f"\n实验参数：{params.label()}")
+
+            faithfulness_scores = []
+            relevancy_scores = []
+            latencies = []
+            output_lengths = []
+            example_outputs = []
+
+            for i, sample in enumerate(samples):
+                # 构建 prompt
+                messages = [
+                    {"role": "system", "content":
+                     "你是一个知识库助手。只使用检索结果回答问题，逐条标注来源。"},
+                    {"role": "user", "content":
+                     f"检索结果：\n{sample.context}\n\n问题：{sample.query}\n回答："},
+                ]
+
+                # 调用 LLM
+                start = time.time()
+                answer = self.llm_call_fn(messages, params)
+                latency = (time.time() - start) * 1000
+
+                # 评估（使用 L7 的 RAGAS 指标）
+                eval_result = self.eval_fn(
+                    query=sample.query,
+                    answer=answer,
+                    context=sample.context,
+                )
+
+                faithfulness_scores.append(eval_result.get("faithfulness", 0))
+                relevancy_scores.append(eval_result.get("answer_relevancy", 0))
+                latencies.append(latency)
+                output_lengths.append(len(answer) // 2)  # token 估算
+
+                # 只记录前 3 个样本的完整输出
+                if i < 3:
+                    example_outputs.append({
+                        "query": sample.query,
+                        "answer": answer[:200],  # 截断
+                    })
+
+            # 汇总
+            avg_faith = sum(faithfulness_scores) / len(faithfulness_scores)
+            avg_rel = sum(relevancy_scores) / len(relevancy_scores)
+
+            results.append(ParamExperimentResult(
+                params=params,
+                faithfulness=avg_faith,
+                answer_relevancy=avg_rel,
+                avg_latency_ms=sum(latencies) / len(latencies),
+                avg_output_tokens=sum(output_lengths) / len(output_lengths),
+                sample_count=len(samples),
+                examples=example_outputs,
+            ))
+
+            print(f"  Faithfulness: {avg_faith:.3f} | "
+                  f"Relevancy: {avg_rel:.3f} | "
+                  f"Latency: {results[-1].avg_latency_ms:.0f}ms | "
+                  f"Output: {results[-1].avg_output_tokens} tokens")
+
+        # 按 faithfulness 降序排列
+        results.sort(key=lambda r: r.faithfulness, reverse=True)
+
+        return results
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    # 模拟 LLM 调用
+    def mock_llm_call(messages, params):
+        time.sleep(0.2)  # 模拟延迟
+        return "华为Mate60 Pro搭载麒麟9000S处理器 [来源1]，支持卫星通话功能 [来源2]。"
+
+    # 模拟 RAGAS 评估
+    def mock_eval(query, answer, context):
+        return {"faithfulness": 0.92, "answer_relevancy": 0.88}
+
+    # 构建测试样本
+    samples = [
+        EvalSample(
+            query="Mate60 Pro有什么特色？",
+            context="[来源1] 华为Mate60 Pro搭载麒麟9000S处理器\n[来源2] 支持卫星通话功能",
+            ideal_answer="Mate60 Pro搭载麒麟9000S处理器[来源1]，支持卫星通话[来源2]。",
+        )
+    ]
+
+    # 运行实验
+    experiment = ParamTuningExperiment(
+        llm_call_fn=mock_llm_call,
+        eval_fn=mock_eval,
+    )
+
+    # 用少量参数组合测试
+    test_params = [
+        GenParams(temperature=0.0),
+        GenParams(temperature=0.5),
+        GenParams(temperature=1.0),
+    ]
+
+    results = experiment.run(samples, test_params)
+
+    print(f"\n{'='*40}")
+    print(f"最优参数：{results[0].params.label()}")
+    print(f"Faithfulness: {results[0].faithfulness:.3f}")
+
+    # 在真实场景中，你会得到类似下面的结果：
+    # 实验参数：T0.0_P0.9_M1024 | Faithfulness: 0.95 | Latency: 1200ms
+    # 实验参数：T0.5_P0.9_M1024 | Faithfulness: 0.82 | Latency: 1350ms
+    # 实验参数：T1.0_P0.9_M1024 | Faithfulness: 0.63 | Latency: 1500ms
+    # 结论：temperature=0.0 在 RAG 场景中质量最优且延迟最低</code></pre>
+
+    <div class="panel good">
+      <h3>一个原则：RAG 场景的 temperature 应该比纯 LLM 场景低 0.2-0.3</h3>
+      <p>纯 LLM 应用（如 ChatGPT 对话）常用 temperature=0.7——需要创意和多样性。但 RAG 场景的目标不是"创意"，而是"忠实"——把检索结果准确表达出来。所以：</p>
+      <ul>
+        <li><strong>知识库 QA / 客服</strong>：temperature 0.0 - 0.1（最低档）</li>
+        <li><strong>带推理的 RAG</strong>：0.1 - 0.3（保留一点灵活性）</li>
+        <li><strong>永远不要 &gt; 0.5</strong>——温度超过 0.5 后，Faithfulness 会急剧下降</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===================== 第六部分：多模型 Prompt 适配差异 ===================== -->
+  <section>
+    <h2>第六部分：多模型 Prompt 适配——同样的任务、不同的"方言"</h2>
+
+    <p>在 L10 的模型适配层中，你已经学会了统一调用接口。但<strong>同样的 prompt 在不同模型上的效果可能差异很大</strong>——因为它们训练时的指令遵循方式不同。</p>
+
+    <h3>6.1 主流模型对 Prompt 的敏感度差异</h3>
+
+    <table>
+      <tr><th>模型</th><th>指令遵循</th><th>格式约束</th><th>角色扮演</th><th>CoT 效果</th><th>Few-shot 敏感度</th></tr>
+      <tr>
+        <td><strong>GPT-4o / GPT-4o-mini</strong></td>
+        <td>⭐⭐⭐⭐⭐</td>
+        <td>严格遵守</td>
+        <td>优秀</td>
+        <td>优秀</td>
+        <td>低（即使没有示例也能很好遵循格式）</td>
+      </tr>
+      <tr>
+        <td><strong>DeepSeek-V3 / DeepSeek-R1</strong></td>
+        <td>⭐⭐⭐⭐</td>
+        <td>良好</td>
+        <td>良好</td>
+        <td>优秀（R1 天然 CoT）</td>
+        <td>中等</td>
+      </tr>
+      <tr>
+        <td><strong>通义千问（Qwen-Max/Plus）</strong></td>
+        <td>⭐⭐⭐⭐</td>
+        <td>良好</td>
+        <td>良好</td>
+        <td>良好</td>
+        <td>中等-高</td>
+      </tr>
+      <tr>
+        <td><strong>Qwen2.5（本地）</strong></td>
+        <td>⭐⭐⭐</td>
+        <td>一般（需要更明确指令）</td>
+        <td>良好</td>
+        <td>良好</td>
+        <td>高（few-shot 可以显著提升格式）</td>
+      </tr>
+      <tr>
+        <td><strong>Llama 3.x（本地）</strong></td>
+        <td>⭐⭐⭐</td>
+        <td>一般</td>
+        <td>一般</td>
+        <td>一般</td>
+        <td>高</td>
+      </tr>
+    </table>
+
+    <h3>6.2 模型感知的 Prompt 适配器</h3>
+
+    <pre><code>"""
+prompt_adapter.py — 多模型 prompt 适配层
+
+根据目标模型，自动调整 system prompt 的措辞、指令风格和格式约束方式。
+"""
+
+from typing import Optional
+
+
+# ========== 模型感知的 prompt 改写规则 ==========
+
+MODEL_ADAPTATION_RULES = {
+    "openai": {
+        "system_style": "指令式",
+        "format_hint": "使用 Markdown 格式",
+        "cot_trigger": "请一步步思考",
+        "note": "OpenAI 系列对指令遵循度最高，不需要过度强调",
+    },
+    "deepseek": {
+        "system_style": "结构化指令",
+        "format_hint": "使用 Markdown 格式",
+        "cot_trigger": "请一步一步推理",
+        "note": "DeepSeek-R1 自带 CoT，不需要额外触发",
+    },
+    "tongyi": {
+        "system_style": "礼貌指令",
+        "format_hint": "使用结构化格式",
+        "cot_trigger": "请逐步分析",
+        "note": "通义千问对角色设定敏感，建议在角色描述中加一些礼貌用语",
+    },
+    "qwen_local": {
+        "system_style": "明确指令+示例",
+        "format_hint": "严格按照以下格式输出",
+        "cot_trigger": "让我们一步一步思考",
+        "note": "本地模型需要更明确的格式约束，建议配合 few-shot",
+    },
+    "llama": {
+        "system_style": "规则清单",
+        "format_hint": "输出格式（必须遵守）：",
+        "cot_trigger": "Let's think step by step",
+        "note": "Llama 对英文指令响应更好，即使回答中文，建议用英文写 CoT 触发词",
+    },
+}
+
+
+def adapt_system_prompt(
+    prompt: str,
+    model_provider: str,
+    model_name: str | None = None,
+) -> str:
+    """
+    根据目标模型调整 system prompt 风格。
+
+    示例：
+        prompt = "请基于检索结果回答问题。每条信息标注[来源N]。"
+        adapted = adapt_system_prompt(prompt, "tongyi")
+        # → "您好！请您基于检索结果回答问题。每条信息请标注[来源N]，谢谢。"
+    """
+    rules = MODEL_ADAPTATION_RULES.get(model_provider)
+
+    if not rules:
+        return prompt  # 不认识的模型，不处理
+
+    style = rules["system_style"]
+
+    if style == "指令式":
+        # OpenAI: 简短直接的指令即可
+        return prompt
+
+    elif style == "结构化指令":
+        # DeepSeek: 结构化，分点
+        lines = prompt.split("\n")
+        adapted = []
+        for line in lines:
+            if line.strip() and not line.strip().startswith(("1.", "2.", "-")):
+                # 把非列表行转为结构化指令
+                adapted.append(f"- {line.strip()}")
+            else:
+                adapted.append(line)
+        return "\n".join(adapted)
+
+    elif style == "礼貌指令":
+        # 通义千问：对礼貌用语敏感
+        if not prompt.startswith("您好") and not prompt.startswith("你好"):
+            prompt = "您好！" + prompt
+        # 在句尾加"谢谢"
+        lines = prompt.split("\n")
+        if lines and lines[-1].strip():
+            lines[-1] = lines[-1].rstrip("。") + "，谢谢。"
+        return "\n".join(lines)
+
+    elif style == "明确指令+示例":
+        # 本地模型：加强约束
+        prompt += (
+            "\n\n【重要】请严格遵循以上指令。"
+            "不要添加任何不在检索结果中的信息。"
+            "如果检索结果中没有相关信息，请回答"暂未找到相关信息"。"
+        )
+        return prompt
+
+    elif style == "规则清单":
+        # Llama：规则清单 + 英文 CoT 触发
+        prompt = (
+            "Rules you must follow:\n"
+            + "\n".join(f"{i+1}. {line.strip()}"
+                        for i, line in enumerate(prompt.split("\n"))
+                        if line.strip())
+        )
+        return prompt
+
+    return prompt
+
+
+def adapt_cot_trigger(
+    model_provider: str,
+) -> str:
+    """返回适合目标模型的 CoT 触发词"""
+    rules = MODEL_ADAPTATION_RULES.get(model_provider, {})
+    return rules.get("cot_trigger", "请一步步思考")
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    base_prompt = (
+        "你是一个知识库助手。\n"
+        "请基于检索结果回答问题，每条信息标注来源编号。\n"
+        "如果信息不足，诚实告知用户。"
+    )
+
+    for model in ["openai", "tongyi", "deepseek", "llama", "qwen_local"]:
+        adapted = adapt_system_prompt(base_prompt, model)
+        print(f"\n===== {model} =====")
+        print(adapted)</code></pre>
+
+    <div class="panel warn">
+      <h3>一个容易被忽略的坑：system prompt 角色格式</h3>
+      <p>不同模型对 system prompt 的角色格式有不同的"期待"：</p>
+      <ul>
+        <li><strong>OpenAI / DeepSeek</strong>：system 角色就是 system，不需要在内容中重复"你是 XX 助手"——但加上也无妨</li>
+        <li><strong>通义千问 DashScope</strong>：system prompt 中的角色定义要清晰，它会影响整个对话的语气</li>
+        <li><strong>Llama 官方格式</strong>：要求 <code>&lt;|begin_of_text|&gt;&lt;|start_header_id|&gt;system&lt;|end_header_id|&gt;</code> 等特殊 token——如果用 OpenAI SDK 兼容模式通常不需要手动加</li>
+      </ul>
+      <p><strong>最佳实践</strong>：在 L10 的 <code>BaseChatAdapter.chat()</code> 中，在发送前调用 <code>adapt_system_prompt()</code> 做自动适配。这样上层的 <code>PromptDesigner</code> 和 <code>ConversationalRAG</code> 代码完全不用动。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 第七部分：动手实践 ===================== -->
+  <section>
+    <h2>第七部分：动手实践——构建 PromptEngineeringRAG</h2>
+
+    <p>现在，集成本课所有组件，扩展 L10 的 <code>ConversationalRAG</code>，构建一个 <code>PromptEngineeringRAG</code>——它使用 PromptDesigner 构建专业的 system prompt，支持 grounding 模式切换、动态 few-shot、CoT 推理和参数调优。</p>
+
+    <h3>7.1 完整管线架构</h3>
+
+    <div class="diagram">
+      <div class="box" style="border-color:#6d28d9;">PromptDesigner<br><span class="small">四块积木构建</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#b45309;">FewShotSelector<br><span class="small">动态示例</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#0d9488;">Grounding 模板<br><span class="small">strict/standard/lenient</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#1e40af;">CoT 推理<br><span class="small">direct/structured/verify</span></div>
+      <div class="arrow">→</div>
+      <div class="box good" style="border-color:#116329;">参数组合<br><span class="small">T0.0~0.3</span></div>
+    </div>
+
+    <h3>7.2 PromptEngineeringRAG 实现</h3>
+
+    <pre><code>"""
+prompt_engineering_rag.py — 集成 Prompt Engineering 的 RAG 管线
+
+在 L10 的 ConversationalRAG 基础上，增加完整的 prompt 工程能力。
+"""
+
+from dataclasses import dataclass, field
+from typing import Optional, Callable
+from enum import Enum
+
+
+# ========== 导入本课组件 ==========
+# 假设上述代码保存在各模块中：
+from prompt_designer import PromptDesigner, SystemPromptConfig
+from grounding_prompts import build_grounding_prompt
+from few_shot_selector import FewShotSelector, Example
+from rag_cot import build_cot_prompt
+from parameter_tuning import GenParams
+from prompt_adapter import adapt_system_prompt, adapt_cot_trigger
+
+
+# ========== 导入 L10 组件 ==========
+# 假设 L10 的代码在以下模块中：
+from chat_history import SlidingWindowHistory
+from session import SessionManager
+from model_adapter import create_chat_adapter, BaseChatAdapter
+
+
+class GroundingMode(str, Enum):
+    STRICT = "strict"
+    STANDARD = "standard"
+    LENIENT = "lenient"
+
+
+class CoTMode(str, Enum):
+    NONE = "none"
+    DIRECT = "direct"
+    STRUCTURED = "structured"
+    VERIFY = "verify"
+
+
+@dataclass
+class PromptEngineeringConfig:
+    """Prompt Engineering 配置"""
+    # System Prompt 积木
+    role_key: str = "客服助手"
+    role_variables: dict = field(default_factory=lambda: {"company_name": "企业"})
+    knowledge_key: str = "严格检索"
+    refusal_key: str = "简洁拒答"
+    output_key: str = "引用标注"
+
+    # Grounding 模式
+    grounding_mode: GroundingMode = GroundingMode.STANDARD
+
+    # Few-shot
+    enable_few_shot: bool = False
+    few_shot_top_k: int = 1
+
+    # CoT
+    cot_mode: CoTMode = CoTMode.NONE
+
+    # 生成参数
+    generation: GenParams = field(default_factory=lambda: GenParams(
+        temperature=0.1,
+        top_p=0.9,
+        max_tokens=1024,
+    ))
+
+    # 模型适配
+    model_provider: str = "openai"
+    model_name: str = "gpt-4o-mini"
+    enable_prompt_adaptation: bool = True
+
+    # 其他
+    history_window_size: int = 6
+    retrieval_top_k: int = 5
+    session_timeout_minutes: int = 30
+
+
+class PromptEngineeringRAG:
+    """
+    集成 Prompt Engineering 的 RAG 管线。
+
+    在 L10 ConversationalRAG 的基础上，扩展了以下能力：
+    - 积木式 system prompt 构建
+    - 多种 grounding 模式
+    - 动态 few-shot 示例
+    - CoT 推理
+    - 参数配置
+    - 多模型 prompt 适配
+
+    使用方式：
+        rag = PromptEngineeringRAG()
+        session = rag.create_session("user_001")
+        reply = rag.ask("Mate60 Pro的屏幕多大？", session.session_id)
+    """
+
+    def __init__(
+        self,
+        config: PromptEngineeringConfig | None = None,
+        retrieve_fn: Callable | None = None,
+        example_library: list[Example] | None = None,
+    ):
+        self.config = config or PromptEngineeringConfig()
+
+        # 组件初始化
+        self.prompt_designer = PromptDesigner()
+        self.few_shot_selector = FewShotSelector(examples=example_library)
+        self.session_manager = SessionManager(
+            session_timeout_minutes=self.config.session_timeout_minutes
+        )
+        self.adapter = create_chat_adapter(
+            self.config.model_provider,
+            self.config.model_name,
+        )
+        self._retrieve_fn = retrieve_fn or self._default_retrieve
+
+        # 统计
+        self.stats = {
+            "total_queries": 0,
+            "total_tokens": 0,
+            "grounding_mode_used": {},
+            "cot_mode_used": {},
+        }
+
+    def set_retrieve_fn(self, fn: Callable):
+        self._retrieve_fn = fn
+
+    def _default_retrieve(self, query: str, top_k: int = 5) -> list[dict]:
+        return []
+
+    def create_session(
+        self,
+        user_id: str,
+        system_prompt: str | None = None,
+    ):
+        """创建会话，使用 PromptDesigner 构建 system prompt"""
+        if system_prompt is None:
+            system_prompt = self._build_system_prompt()
+        return self.session_manager.create_session(user_id, system_prompt)
+
+    def _build_system_prompt(self) -> str:
+        """使用 PromptDesigner 构建 system prompt"""
+        sys_config = SystemPromptConfig(
+            role_key=self.config.role_key,
+            role_variables=self.config.role_variables,
+            knowledge_key=self.config.knowledge_key,
+            refusal_key=self.config.refusal_key,
+            output_key=self.config.output_key,
+        )
+        prompt = self.prompt_designer.build(sys_config)
+
+        # 多模型适配
+        if self.config.enable_prompt_adaptation:
+            prompt = adapt_system_prompt(
+                prompt, self.config.model_provider, self.config.model_name
+            )
+
+        return prompt
+
+    def ask(self, query: str, session_id: str) -> dict:
+        """处理一次对话请求"""
+        import time
+        start = time.time()
+
+        # 1. 获取会话
+        session = self.session_manager.get_session(session_id)
+        if not session:
+            return {"answer": "会话已过期，请重新开始对话。", "error": "session_expired"}
+
+        self.stats["total_queries"] += 1
+
+        # 2. 检索（使用增强查询，保留 L10 的指代消解能力）
+        # 注：实际项目中在此调用 resolve_references()
+        results = self._retrieve_fn(query, top_k=self.config.retrieval_top_k)
+
+        # 3. 构建 grounding 上下文
+        context_parts = []
+        if results:
+            for i, r in enumerate(results):
+                context_parts.append(f"[来源{i+1}] {r.get('text', '')}")
+            context_str = "\n".join(context_parts)
+        else:
+            context_str = "（未检索到相关信息）"
+
+        # 4. 构建 prompt
+        if self.config.cot_mode == CoTMode.NONE:
+            # 标准 grounding prompt
+            messages = build_grounding_prompt(
+                context=context_str,
+                query=query,
+                mode=self.config.grounding_mode.value,
+            )
+        else:
+            # CoT prompt
+            messages = build_cot_prompt(
+                context=context_str,
+                query=query,
+                cot_mode=self.config.cot_mode.value,
+            )
+
+        # 5. 注入 system prompt（使用会话中的 system prompt）
+        system_prompt = self._build_system_prompt()
+        messages[0]["content"] = system_prompt
+
+        # 6. 注入 few-shot（可选）
+        if self.config.enable_few_shot:
+            selected = self.few_shot_selector.select_by_keyword(
+                query, top_k=self.config.few_shot_top_k
+            )
+            if selected:
+                few_shot_block = self.few_shot_selector.to_few_shot_prompt(selected)
+                messages[0]["content"] += f"\n\n{few_shot_block}"
+
+        # 7. 注入对话历史（如果有）
+        history = session.history.get_messages()
+        # 排除 system message（已经在 messages[0] 中）
+        history_content = [m for m in history if m.get("role") != "system"]
+        if history_content:
+            # 在 user message 前插入历史
+            user_msg = messages[-1]
+            messages[-1] = {
+                "role": "user",
+                "content": (
+                    "历史对话：\n"
+                    + "\n".join(
+                        f"{'用户' if m['role']=='user' else '助手'}: {m['content']}"
+                        for m in history_content[-4:]  # 最近 2 轮
+                    )
+                    + f"\n\n最新问题：{query}"
+                ),
+            }
+
+        # 8. 调用模型
+        try:
+            answer = self.adapter.chat(
+                messages,
+                temperature=self.config.generation.temperature,
+                top_p=self.config.generation.top_p,
+                max_tokens=self.config.generation.max_tokens,
+            )
+        except Exception as e:
+            answer = f"抱歉，模型调用出错了：{str(e)}。请稍后重试。"
+
+        # 9. 更新历史
+        session.history.add_message("user", query)
+        session.history.add_message("assistant", answer)
+
+        # 10. 统计
+        mode_key = f"grounding={self.config.grounding_mode.value}_cot={self.config.cot_mode.value}"
+        self.stats["grounding_mode_used"][mode_key] = \
+            self.stats["grounding_mode_used"].get(mode_key, 0) + 1
+        self.stats["total_tokens"] += sum(len(m.get("content", "")) for m in messages) // 2
+
+        latency_ms = int((time.time() - start) * 1000)
+
+        return {
+            "answer": answer,
+            "model": self.adapter.get_model_info()["model"],
+            "grounding_mode": self.config.grounding_mode.value,
+            "cot_mode": self.config.cot_mode.value,
+            "temperature": self.config.generation.temperature,
+            "history_count": len(session.history.messages) // 2,
+            "latency_ms": latency_ms,
+            "retrieval_results": len(results),
+        }
+
+    def switch_config(self, **config_updates):
+        """运行时切换配置"""
+        for key, value in config_updates.items():
+            if hasattr(self.config, key):
+                setattr(self.config, key, value)
+        # 如果换了模型，重建适配器
+        if "model_provider" in config_updates or "model_name" in config_updates:
+            self.adapter = create_chat_adapter(
+                self.config.model_provider,
+                self.config.model_name,
+            )
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    # 初始化
+    config = PromptEngineeringConfig(
+        role_key="客服助手",
+        role_variables={"company_name": "华为"},
+        knowledge_key="严格检索",
+        grounding_mode=GroundingMode.STANDARD,
+        cot_mode=CoTMode.NONE,
+        model_provider="openai",
+        model_name="gpt-4o-mini",
+        generation=GenParams(temperature=0.05, top_p=0.9, max_tokens=1024),
+    )
+
+    rag = PromptEngineeringRAG(config)
+
+    # 模拟检索函数
+    def mock_retrieve(q: str, top_k: int = 5):
+        kb = {
+            "屏幕": {"text": "华为Mate60 Pro采用6.82英寸OLED曲面屏，2720×1260分辨率", "score": 0.85},
+            "摄像头": {"text": "华为Mate60 Pro搭载5000万像素超感知摄像头，支持F1.4-F4.0可变光圈", "score": 0.82},
+            "电池": {"text": "华为Mate60 Pro配备5000mAh电池，支持88W有线快充", "score": 0.80},
+            "价格": {"text": "华为Mate60 Pro起售价6999元（12+512GB版本）", "score": 0.78},
+        }
+        results = []
+        for kw, info in kb.items():
+            if kw in q:
+                results.append({"text": info["text"], "score": info["score"]})
+        return results
+
+    rag.set_retrieve_fn(mock_retrieve)
+
+    # 对话测试
+    session = rag.create_session("demo_user")
+    sid = session.session_id
+
+    queries = [
+        "华为Mate60 Pro的屏幕是什么规格？",
+        "摄像头呢？",
+        "电池和价格？",
+    ]
+
+    for q in queries:
+        result = rag.ask(q, sid)
+        print(f"\nQ: {q}")
+        print(f"A: {result['answer'][:120]}...")
+        print(f"   [模式] {result['grounding_mode']}/{result['cot_mode']} | "
+              f"[温度] {result['temperature']} | "
+              f"[延迟] {result['latency_ms']}ms")
+
+    # 对比实验：切换为 CoT 模式
+    print(f"\n{'='*50}")
+    print("切换 CoT 模式对比")
+    rag.switch_config(cot_mode=CoTMode.STRUCTURED)
+
+    result_cot = rag.ask("华为Mate60 Pro的屏幕是什么规格？", sid)
+    print(f"\n[CoT Structured]")
+    print(result_cot['answer'][:300] + "...")</code></pre>
+
+    <h3>7.3 练习任务</h3>
+
+    <div class="task">
+      <h4>练习 1：Prompt A/B 对比实验</h4>
+      <p>用本课的 <code>PromptEngineeringRAG</code> 跑以下三组对比，用 L7 的 RAGAS 指标衡量：</p>
+      <ul>
+        <li><strong>A vs B</strong>：Grounding 模式 strict vs lenient——Faithfulness 差多少？</li>
+        <li><strong>A vs B</strong>：temperature=0.0 vs 0.5——有什么区别？</li>
+        <li><strong>A vs B</strong>：有 few-shot vs 无 few-shot——格式一致性是否有提升？</li>
+      </ul>
+      <p>把你的发现记录到 <code>learning-records/0011-rag-prompt-engineering.md</code>。</p>
+    </div>
+
+    <div class="task">
+      <h4>练习 2：构建你自己的 Prompt 积木库</h4>
+      <p>根据你的实际业务场景：</p>
+      <ol>
+        <li>添加至少 2 个自定义角色预设到 <code>ROLE_TEMPLATES</code></li>
+        <li>添加至少 2 个自定义输出格式预设到 <code>OUTPUT_FORMAT_TEMPLATES</code></li>
+        <li>添加至少 3 个自定义 few-shot 示例到 <code>EXAMPLE_LIBRARY</code></li>
+        <li>用 <code>PromptEngineeringRAG</code> 测试你的积木组合</li>
+      </ol>
+    </div>
+
+    <div class="task">
+      <h4>练习 3：多模型 prompt 适配实验</h4>
+      <p>如果你有 OpenAI + 通义千问（或 DeepSeek）两个模型的 API Key：</p>
+      <ol>
+        <li>用完全相同的 <code>PromptEngineeringConfig</code> 在两个模型上跑同一个问题集</li>
+        <li>对比未适配 prompt vs 适配 prompt 的效果差异</li>
+        <li>记录每个模型对 prompt 风格的敏感度</li>
+      </ol>
+    </div>
+
+    <div class="task">
+      <h4>练习 4：最差情况测试</h4>
+      <p>用 <code>strict</code> grounding 模式，故意制造这些场景测试 prompt 的鲁棒性：</p>
+      <ol>
+        <li><strong>空检索结果</strong>——系统是否诚实拒答而非编造？</li>
+        <li><strong>检索结果矛盾</strong>——两个来源给出不同的数字，模型怎么处理？</li>
+        <li><strong>诱导性问题</strong>——"据说 Mate60 Pro 有 100 倍变焦，是真的吗？"——模型是否只引用检索结果？</li>
+        <li><strong>跨语言问题</strong>——用英文问中文知识库，模型是否还遵循中文 prompt 指令？</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ===================== 检索练习 ===================== -->
+  <section>
+    <h2>检索练习：巩固你的理解</h2>
+
+    <p>回答以下问题，不要回看上面的代码——凭记忆回答：</p>
+
+    <div class="quiz" id="quiz1">
+      <p><strong>1.</strong> RAG System Prompt 的"四块积木"包括哪些？</p>
+      <button data-q="1" data-a="A">A. 角色设定、知识范围、拒答指令、输出格式</button>
+      <button data-q="1" data-a="B">B. 角色设定、温度参数、引用格式、拒答指令</button>
+      <button data-q="1" data-a="C">C. 知识范围、Few-shot、CoT、输出格式</button>
+      <button data-q="1" data-a="D">D. 角色设定、历史管理、模型选择、输出格式</button>
+      <div class="feedback" id="fb1"></div>
+    </div>
+
+    <div class="quiz" id="quiz2">
+      <p><strong>2.</strong> Grounding prompt 的三种模式（strict / standard / lenient）中，哪一种是客服 Q&A 场景的推荐配置？</p>
+      <button data-q="2" data-a="A">A. strict——要求最高准确度</button>
+      <button data-q="2" data-a="B">B. standard——在准确性和自然度之间平衡</button>
+      <button data-q="2" data-a="C">C. lenient——允许补充通用知识</button>
+      <button data-q="2" data-a="D">D. 三种都可以，效果差不多</button>
+      <div class="feedback" id="fb2"></div>
+    </div>
+
+    <div class="quiz" id="quiz3">
+      <p><strong>3.</strong 在 RAG 场景中，temperature 的推荐值范围是多少？</p>
+      <button data-q="3" data-a="A">A. 0.0 - 0.1（接近零）</button>
+      <button data-q="3" data-a="B">B. 0.5 - 0.7（中等）</button>
+      <button data-q="3" data-a="C">C. 0.8 - 1.0（较高）</button>
+      <button data-q="3" data-a="D">D. 1.5 - 2.0（极高）</button>
+      <div class="feedback" id="fb3"></div>
+    </div>
+
+    <div class="quiz" id="quiz4">
+      <p><strong>4.</strong> Chain-of-Thought 在 RAG 中的主要作用是什么？</p>
+      <button data-q="4" data-a="A">A. 减少 token 消耗</button>
+      <button data-q="4" data-a="B">B. 让 LLM 展示推理过程，提高可审计性和准确性</button>
+      <button data-q="4" data-a="C">C. 加快响应速度</button>
+      <button data-q="4" data-a="D">D. 让回答更有创造性</button>
+      <div class="feedback" id="fb4"></div>
+    </div>
+
+    <div class="quiz" id="quiz5">
+      <p><strong>5.</strong> Dynamic Few-shot 相比固定 Few-shot 的优势是什么？</p>
+      <button data-q="5" data-a="A">A. 动态示例更节省 token，且更贴合当前查询</button>
+      <button data-q="5" data-a="B">B. 动态示例精度更高，但 token 消耗更多</button>
+      <button data-q="5" data-a="C">C. 动态示例不需要维护示例库</button>
+      <button data-q="5" data-a="D">D. 动态示例不需要 embedding 模型</button>
+      <div class="feedback" id="fb5"></div>
+    </div>
+  </section>
+
+  <!-- ===================== 故障诊断 ===================== -->
+  <section>
+    <h2>故障诊断：常见问题与排查</h2>
+
+    <div class="panel bad">
+      <h3>❌ 问题一：无论给什么检索内容，模型都用"自己的知识"回答</h3>
+      <p><strong>表现</strong>：你给了检索结果，但回答中出现了检索结果中没有的信息，或者没有引用来源。</p>
+      <p><strong>原因</strong>：system prompt 中的"知识范围"积木不够强硬。</p>
+      <p><strong>解决方案</strong>：</p>
+      <ol>
+        <li>切换到 <code>strict</code> grounding 模式——它在 system prompt 和 user prompt 中都强调了知识边界</li>
+        <li>检查你的 role 设定——"客服助手"天然比"知识助手"更容易产生幻觉吗？不一定，但要注意"助手"这个词可能让 LLM 认为应该"帮助"用户</li>
+        <li>加入"反幻觉"指令："如果你不确定或者信息不在检索结果中，不要说'据我所知'或'一般来说'——直接说不知道"</li>
+      </ol>
+    </div>
+
+    <div class="panel bad">
+      <h3>❌ 问题二：引用格式混乱——有的地方标[来源1]，有的地方不标</h3>
+      <p><strong>表现</strong>：模型"有时候标，有时候不标"，或者标了但位置不对。</p>
+      <p><strong>原因</strong>：format instruction 不够具体，或者 temperature 太高导致格式不稳定。</p>
+      <p><strong>排查步骤</strong>：</p>
+      <ol>
+        <li>检查 temperature——如果 > 0.3，降到 0.0-0.1 试试</li>
+        <li>加 few-shot 示例——展示一个"完美引用"的范例，让模型照做</li>
+        <li>把引用格式要求从 system prompt 移到 user prompt 末尾——越靠近模型生成的位置，指令优先级越高</li>
+        <li>对于本地模型（如 Qwen2.5、Llama），考虑用结构化输出（JSON schema）强制格式——但这是 L13 之后的内容了</li>
+      </ol>
+    </div>
+
+    <div class="panel bad">
+      <h3>❌ 问题三：加了 CoT 后回答变得啰嗦，用户抱怨"说太多"</h3>
+      <p><strong>表现</strong>：CoT prompt 要求"先展示推理过程再回答"，但用户只想要一个简洁的答案。</p>
+      <p><strong>解决方案</strong>：</p>
+      <ul>
+        <li>使用 <code>direct</code> 而非 <code>structured</code>——direct 的推理部分更短</li>
+        <li>在 prompt 中明确格式："思考过程请用简短的语言在[思考]中展示，最终答案在[答案]中展示"——这样用户可以选择只看答案部分</li>
+        <li>如果用户反馈"说太多"，说明这个场景根本不需要 CoT——切回 <code>CoTMode.NONE</code></li>
+      </ul>
+    </div>
+
+    <div class="panel bad">
+      <h3>❌ 问题四：切换模型后，prompt 效果明显下降</h3>
+      <p><strong>表现</strong>：在 GPT-4o-mini 上效果很好的 prompt，换到通义千问后格式崩塌或拒答指令失效。</p>
+      <p><strong>原因</strong>：不同模型对指令的"理解方式"不同——GPT 系列的指令遵循能力最强。</p>
+      <p><strong>排查步骤</strong>：</p>
+      <ol>
+        <li>检查 <code>adapt_system_prompt()</code> 是否被调用——它应该自动处理模型适配</li>
+        <li>通义千问对"礼貌指令"敏感——把"你不要..."改成"请你不要..."</li>
+        <li>DeepSeek 对结构化指令响应最好——把多行文本转成 bullet list</li>
+        <li>本地模型（Qwen2.5/Llama）需要更明确的格式约束——增加"【重要】必须遵守"等强调词</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ===================== 参考资源 ===================== -->
+  <section>
+    <h2>参考资源</h2>
+
+    <p>本课涉及的知识点，推荐以下资源进一步深入学习：</p>
+    <ul>
+      <li><strong>Prompt Engineering 系统性指南</strong>：<a href="https://platform.openai.com/docs/guides/prompt-engineering">OpenAI Prompt Engineering Guide</a>——OpenAI 官方的 prompt 工程六大策略，包括写清晰指令、提供参考文本（这正是 RAG！）、分复杂任务为子任务等</li>
+      <li><strong>Chain-of-Thought 论文</strong>：<a href="https://arxiv.org/abs/2201.11903">"Chain-of-Thought Prompting Elicits Reasoning in Large Language Models" — Wei et al., 2022</a>——CoT 的奠基论文，理解"Let's think step by step"为什么会有效</li>
+      <li><strong>Few-shot 选择策略</strong>：<a href="https://arxiv.org/abs/2202.12837">"What Makes Good In-Context Examples?" — Liu et al., 2022</a>——研究了示例选择和排序对 few-shot 效果的影响，证明了选择合适的示例比示例数量更重要</li>
+      <li><strong>温度参数研究</strong>：<a href="https://community.openai.com/t/cheat-sheet-for-temperature-top-p-and-other-parameters/293684">OpenAI API 参数指南</a>——temperature 和 top_p 的实际效果分析，包含不同值的生成样例对比</li>
+      <li><strong>RAG 中 prompt 的 A/B 测试</strong>：<a href="https://docs.ragas.io/">RAGAS 官方文档</a>——用 RAGAS 指标做 prompt 的量化对比（你在 L7 学过的，这里用来评估 prompt 改进效果）</li>
+      <li><strong>LM 系统设计</strong>：<a href="https://github.com/Hannibal046/Awesome-LLM">Awesome LLM</a>——大型语言模型的综合资源列表，包含 prompt engineering、RAG、评估等多个方向</li>
+    </ul>
+    <p><strong>特别推荐</strong>：OpenAI 的 Prompt Engineering Guide 中"Provide reference text"这一节——它几乎就是 RAG 的核心设计理念。读完你会发现，RAG 本质上就是 Prompt Engineering 的一种实践：把检索结果作为"参考文本"注入 prompt。</p>
+    <p class="small">本课中的 <code>adapt_system_prompt()</code> 适配规则基于各家模型的公开文档和社区经验总结。不同版本的模型行为可能有变化——建议你以自己的实测为准。如果你发现某个模型的行为和本课描述不一致，欢迎更新适配规则。</p>
+  </section>
+
+  <!-- ===================== 结尾 ===================== -->
+  <section>
+    <h2>课后思考</h2>
+    <p>到今天为止，你的 RAG 系统已经具备：</p>
+    <ul>
+      <li>✅ 核心检索-生成能力（L1-L7）</li>
+      <li>✅ 全局技术栈选型能力（L8）</li>
+      <li>✅ 诚实拒答与多层兜底（L9）</li>
+      <li>✅ 多轮对话管理与多模型切换（L10）</li>
+      <li>✅ <strong>专业 Prompt Engineering 体系（本课）</strong></li>
+    </ul>
+
+    <p>你可能会想："前面学了这么多检索和评估的技术，最后发现改几行 prompt 效果最明显？"——这不是前面白学了，而是 <strong>prompt 是 RAG 系统中最后一道也是最容易调整的质量杠杆</strong>。检索质量决定了天花板（没有好检索，再好的 prompt 也变不出花来），而 prompt 决定你离天花板还有多远。</p>
+
+    <p>下一课 <a href="0012-embedding-model-selection.html">L12: Embedding 模型全景与选型</a>，我们将深入 RAG 检索质量的另一个根因——embedding 模型的选择。你会学到一个"关键认知"：<strong>embedding 模型是 RAG 系统中决定检索质量上限的因素，而 prompt 是让你达到这个上限的工具</strong>。</p>
+
+    <p>如果你对今天的内容有任何疑问——比如某块积木的设计选择、某种 grounding 模式的适用边界、某个参数在特定场景下的取值——随时可以追问。记住，<strong>对一个 AI 老师追问是深度学习的最佳路径</strong>。</p>
+  </section>
+
+  <script>
+  document.querySelectorAll('.quiz button').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const q = this.dataset.q;
+      const a = this.dataset.a;
+      const fb = document.getElementById('fb' + q);
+      const siblings = this.parentElement.querySelectorAll('button');
+      const answers = {
+        '1': 'A',
+        '2': 'B',
+        '3': 'A',
+        '4': 'B',
+        '5': 'A',
+      };
+
+      siblings.forEach(s => {
+        s.classList.remove('selected', 'correct', 'wrong');
+        s.disabled = true;
+        s.style.cursor = 'default';
+      });
+
+      this.classList.add('selected');
+
+      if (a === answers[q]) {
+        this.classList.add('correct');
+        fb.textContent = '✅ 正确！' + {
+          '1': '四块积木是：角色设定（你是谁）+ 知识范围（你知道什么）+ 拒答指令（什么不能做）+ 输出格式（怎么回答）。这就是 PromptDesigner 的四个构建模块。',
+          '2': 'standard 模式在准确性和自然度之间取得了最佳平衡。strict 适合金融/医疗，lenient 适合创意辅助。对于大多数客服场景，standard 是最佳起点。',
+          '3': 'RAG 场景需要忠实度优先，temperature 推荐 0.0-0.1。超过 0.3 后 Faithfulness 会明显下降。纯文本生成可以到 0.7，但 RAG 不是纯文本生成。',
+          '4': 'CoT 让 LLM 展示从检索结果到最终答案的推理过程，提高了可审计性和准确性，特别适合多跳推理和对比分析场景。',
+          '5': '动态选择（按关键词或 embedding 匹配）只给最相关的 1-2 个示例，既节省 token 又提升效果。固定给 3 个示例可能很多不相关的浪费了 token。',
+        }[q];
+      } else {
+        this.classList.add('wrong');
+        fb.textContent = '❌ 再想想。正确答案是 ' + answers[q] + '。' + {
+          '1': 'A 是四块积木。B 的温度参数、C 的 Few-shot 和 CoT、D 的历史管理和模型选择都不是 system prompt 的"四块积木"——它们在其他部分覆盖。',
+          '2': 'B standard 是推荐的起点。A strict 虽然准确度最高但可能让回答显得生硬，C lenient 适合非生产场景。',
+          '3': 'A 是正确值。B/C/D 都会导致回答发散和幻觉增加。记住 RAG 场景的 temperature 应比纯 LLM 场景低 0.2-0.3。',
+          '4': 'B 正确。A 减少 token (错，CoT 增加 token)，C 加快速度（错，CoT 更慢），D 让回答更有创造性（错，CoT 不是为了创造力）。',
+          '5': 'A 正确。B 说 token 更多（错，动态选择 token 更少），C 说不需要维护（错，需要维护），D 说不需要 embedding（关键词匹配不需要，但 embedding 版需要）。',
+        }[q];
+      }
+    });
+  });
+  </script>
+
+</main>
+</body>
+</html>

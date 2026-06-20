@@ -1,0 +1,1233 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 12 课：Embedding 模型全景与选型 —— 给 RAG 系统装上最适合的"编码器"</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink:#172033; --muted:#667085; --line:#d7dde8; --accent:#0f766e;
+      --accent2:#8b5e00; --good:#116329; --bad:#a10e25; --bg:#fbfcfe; --panel:#fff;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-serif, Georgia, "Noto Serif SC", serif; color:var(--ink); background:var(--bg); line-height:1.7; }
+    main { max-width: 960px; margin: 0 auto; padding: 42px 22px 70px; }
+    header { margin-bottom: 30px; }
+    .kicker { font: 700 13px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--accent); text-transform: uppercase; letter-spacing: .08em; }
+    h1 { font-size: clamp(32px, 5vw, 54px); line-height:1.08; margin: 10px 0 12px; letter-spacing:0; }
+    h2 { font-size: 23px; margin: 34px 0 12px; padding-bottom: 6px; border-bottom:1px solid var(--line); }
+    h3 { font-size: 18px; margin: 20px 0 8px; }
+    h4 { font-size: 16px; margin: 14px 0 6px; }
+    p { margin: 0 0 14px; }
+    a { color:#0b5cad; text-decoration-thickness:1px; text-underline-offset:3px; }
+    .lede { color:var(--muted); max-width:760px; font-size:18px; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin:16px 0; }
+    .panel.good { border-left:4px solid var(--good); }
+    .panel.warn { border-left:4px solid var(--accent2); }
+    .panel.bad { border-left:4px solid var(--bad); }
+    .panel.info { border-left:4px solid var(--accent); }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { background:#eef6f5; padding:2px 5px; border-radius:4px; font-size:0.92em; }
+    pre { overflow:auto; background:#f6f8fa; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:16px; font-size:14px; line-height:1.55; }
+    .small { color:var(--muted); font-size:14px; }
+    .tag { display:inline-block; background:var(--accent); color:#fff; border-radius:4px; padding:2px 8px; font-size:12px; font-weight:700; letter-spacing:.03em; font-family:ui-sans-serif,system-ui; }
+    .tag.api { background:#6d28d9; }
+    .tag.bge { background:#0d9488; }
+    .tag.coh { background:#b45309; }
+    .tag.jina { background:#1e40af; }
+    .tag.zh { background:#a10e25; }
+    .quiz { display:grid; gap:10px; margin-top:12px; }
+    button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:11px 13px; text-align:left; font:600 15px/1.35 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; color:var(--ink); cursor:pointer; }
+    button:hover { border-color:var(--accent); }
+    button.selected { border-color:var(--accent); background:#eef6f5; }
+    button.correct { border-color:var(--good); background:#edf8ef; color:var(--good); }
+    button.wrong { border-color:var(--bad); background:#fff0f2; color:var(--bad); }
+    .feedback { min-height:26px; font-weight:700; margin-top:8px; }
+    .task { border-left:4px solid var(--accent2); padding-left:14px; margin:20px 0; }
+    table { border-collapse:collapse; width:100%; margin:14px 0; }
+    th, td { border:1px solid var(--line); padding:8px 12px; text-align:left; font-size:15px; }
+    th { background:#f6f8fa; font-weight:700; }
+    ul, ol { padding-left:22px; }
+    .flow { display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:center; margin:16px 0; }
+    .flow-box { border:1px solid var(--line); border-radius:6px; padding:8px 14px; background:var(--panel); font-size:14px; text-align:center; }
+    .flow-arrow { font-size:20px; color:var(--muted); }
+    .diagram { text-align:center; margin:20px 0; padding:24px; background:#fafbfc; border:1px solid var(--line); border-radius:12px; }
+    .diagram .arrow { color:var(--muted); font-size:24px; margin:0 4px; }
+    .diagram .box { display:inline-block; border:2px solid var(--accent); border-radius:8px; padding:10px 18px; margin:4px; font-weight:700; }
+    .diagram .box.warn { border-color:var(--accent2); }
+    .diagram .box.good { border-color:var(--good); }
+    .diagram .box.muted { border-color:var(--muted); color:var(--muted); }
+    .bar-chart { display:flex; align-items:flex-end; gap:8px; height:180px; padding:20px 10px 0; margin:14px 0; border-bottom:2px solid var(--line); }
+    .bar { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; }
+    .bar-fill { width:100%; min-width:36px; border-radius:4px 4px 0 0; position:relative; transition:height .3s; }
+    .bar-fill .label { position:absolute; top:-22px; left:50%; transform:translateX(-50%); white-space:nowrap; font-size:12px; font-weight:700; }
+    .bar-fill .value { position:absolute; bottom:-20px; left:50%; transform:translateX(-50%); font-size:11px; color:var(--muted); }
+    .bar-fill.api { background:#6d28d9; }
+    .bar-fill.bge { background:#0d9488; }
+    .bar-fill.coh { background:#b45309; }
+    .bar-fill.jina { background:#1e40af; }
+    .bar-fill.zh-model { background:#a10e25; }
+    .method { display:flex; align-items:center; gap:12px; margin:10px 0; padding:10px; background:#fafbfc; border-radius:8px; border:1px solid var(--line); }
+    .method .name { font-weight:700; min-width:80px; font-size:14px; }
+    .method .desc { font-size:14px; color:var(--ink); }
+    .method .tag { flex-shrink:0; }
+    .checklist { list-style:none; padding:0; }
+    .checklist li { padding:6px 0 6px 28px; position:relative; }
+    .checklist li::before { content:"□"; position:absolute; left:0; font-size:18px; color:var(--accent); }
+    .checklist li.done::before { content:"☑"; color:var(--good); }
+    @media (max-width: 640px) { .bar-chart { height:120px; gap:4px; padding:12px 4px 0; } .bar-fill { min-width:24px; } .bar-fill .label { font-size:10px; top:-18px; } }
+    @media print { body { background:white; } main { max-width:none; padding:20mm; } .panel { break-inside: avoid; } button { border-color:#aaa; } .diagram { break-inside: avoid; } .bar-chart { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="kicker">Lesson 0012 — 模块二 · 质量地基</div>
+    <h1>Embedding 模型全景与选型：给 RAG 系统装上最适合的"编码器"</h1>
+    <p class="lede">本课目标：你将不再盲目选择 embedding 模型——学会读 MTEB 榜单、理解四类模型的优劣、设计可热切换的适配层，并用第 4 课的评估框架给自己的场景做 A/B 对比实验。</p>
+  </header>
+
+  <!-- ===================== 能力预告 ===================== -->
+  <section>
+    <h2>你今天要获得的能力</h2>
+    <p>学完本课，你将拥有：</p>
+    <ul>
+      <li>一张 <strong>embedding 模型横向对比表</strong>：OpenAI / BGE / Cohere / Jina 四类模型的核心差异、定价、适用场景</li>
+      <li>一份 <strong>MTEB 榜单正确阅读指南</strong>：不再被总分迷惑，学会看 Retrieval Average + 中文子集</li>
+      <li>一个 <strong>中文 embedding 深度评测</strong>：BGE-zh / m3e / stella / GTE / text2vec 五款模型的中文检索专项测试</li>
+      <li>一个 <strong>EmbeddingAdapter 适配层</strong>：统一接⼝ + 配置化切换，5 行代码换一个 embedding 模型</li>
+      <li>一份 <strong>本地部署指南</strong>：Ollama / Infinity 部署私有化 embedding 模型的完整操作</li>
+      <li>一套 <strong>A/B 对比实验流程</strong>：基于第 4 课 evaluator + golden set，让数据替你选择最佳 embedding</li>
+    </ul>
+    <p>这是你 RAG 系统从"随机选一个 embedding"到"<strong>有数据支撑地选型</strong>"的关键升级——embedding 是检索质量的根，选对了事半功倍。</p>
+    <p class="small">推荐阅读前课：<a href="0005-混合检索与查询转换.html">第 5 课：混合检索与查询转换</a>（已有的检索系统做对比实验）、<a href="0008-rag-tech-stack-overview.html">第 8 课：RAG 技术栈全景图</a>（Embedding 分类全景）。速查表：<a href="../reference/0012-embedding-model-selection-cheatsheet.html">Embedding 模型选型速查表</a>。</p>
+  </section>
+
+  <!-- ===================== 1. Embedding 模型原理速览 ===================== -->
+  <section>
+    <h2>第一步：Embedding 模型在 RAG 中的位置</h2>
+
+    <div class="flow">
+      <span class="flow-box">文档 Chunk</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-box" style="border-color:#6d28d9; background:#f3f0ff;"><strong>Embedding 模型</strong></span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-box">向量 [0.023, -0.15, …, 0.87]</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-box">向量数据库</span>
+    </div>
+
+    <p>Embedding 模型的核心作用就是<strong>把文本转换成固定长度的向量</strong>，使得语义相似的文本在向量空间中距离相近。它在 RAG 中出现在两个环节：</p>
+    <ol>
+      <li><strong>索引阶段</strong>：将每一篇文档 chunk 通过 embedding 模型变成向量，存入向量数据库</li>
+      <li><strong>检索阶段</strong>：将用户查询通过 <strong>同一个</strong> embedding 模型变成向量，在向量库中做相似性搜索</li>
+    </ol>
+
+    <p class="small">⚠️ 关键约束：索引和检索必须使用 <strong>同一个 embedding 模型</strong>。如果用 A 模型索引、B 模型检索，向量空间的分布不同，检索质量会断崖式下降。</p>
+
+    <h3>所以，embedding 模型选型有多重要？</h3>
+    <p>一句话：<strong>embedding 模型是检索质量的天花板。</strong></p>
+    <ul>
+      <li>如果你的 embedding 模型无法区分"苹果是水果"和"苹果是公司"，那么后续的所有优化（重排序、query 转换、prompt 优化）都是在弥补这个缺陷</li>
+      <li>换了更好的 embedding 模型，Recall@K 可能直接提升 10-20%，而且这个改进与后续 pipeline 无关（乘法效应）</li>
+      <li>embedding 模型的维度决定了向量库的存储量和检索速度，影响整个系统的成本</li>
+    </ul>
+
+    <div class="panel info">
+      <h3>一个真实的案例</h3>
+      <p>某团队在中文客服知识库上用 OpenAI text-embedding-ada-002（1536 维）换到 bge-large-zh（1024 维），Recall@10 从 0.72 提升到 0.85，同时维度缩小了 1/3，检索速度反而更快了。换模型花了 2 天，但效果持续到今天。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 2. MTEB 榜单解读 ===================== -->
+  <section>
+    <h2>第二步：MTEB 榜单——什么值得看、什么不能信</h2>
+
+    <p><a href="https://huggingface.co/spaces/mteb/leaderboard">MTEB（Massive Text Embedding Benchmark）</a> 是当前最权威的 embedding 模型排行榜，覆盖 100+ 数据集、8 大任务。但很多人在读榜单时犯了错误。</p>
+
+    <h3>MTEB 的 8 项评测任务</h3>
+    <table>
+      <tr><th>任务</th><th>说明</th><th>对 RAG 的相关性</th></tr>
+      <tr><td><strong>Retrieval Avg</strong></td><td>模拟检索任务的平均分——这是 RAG 最核心的指标</td><td style="color:var(--good);font-weight:700;">⭐⭐⭐⭐⭐</td></tr>
+      <tr><td>Classification</td><td>文本分类准确率</td><td>⭐⭐</td></tr>
+      <tr><td>Clustering</td><td>聚类效果</td><td>⭐</td></tr>
+      <tr><td>Pair Classification</td><td>句子对相似度判断</td><td>⭐⭐⭐</td></tr>
+      <tr><td>Reranking</td><td>排序质量</td><td>⭐⭐⭐</td></tr>
+      <tr><td>STS</td><td>语义文本相似度</td><td>⭐⭐</td></tr>
+      <tr><td>Summarization</td><td>摘要相似度</td><td>⭐</td></tr>
+      <tr><td>Cossim (Clf)</td><td>基于余弦相似度的分类</td><td>⭐</td></tr>
+    </table>
+
+    <div class="panel warn">
+      <h3>常见误区：只看总分不看 Retrieval Avg</h3>
+      <p>MTEB 的标准排序是<strong>所有 8 项任务的平均分</strong>。但很多模型在 Classification 上得分高、在 Retrieval 上表现平平——而你做 RAG 只需要 Retrieval。比如有的模型总分 64+ 但 Retrieval Avg 只有 50 出头，这在 RAG 场景下就是低质量模型。</p>
+      <p><strong>正确做法</strong>：看 MTEB 榜单时，找到 <code>Retrieval Average</code> 列，按这个排序。这是对 RAG 最直接的参考指标。</p>
+    </div>
+
+    <h3>中文场景怎么看？</h3>
+    <p>MTEB 的 retrieval 任务主要是英文数据集（NFCorpus、SciFact 等）。对中文场景，有两个调整：</p>
+    <ol>
+      <li><a href="https://huggingface.co/spaces/mteb/leaderboard">C-MTEB</a>（Chinese MTEB）：包含专门的中文检索数据集（T2Retrieval、MMarcoRetrieval 等），更能反映模型的中文能力</li>
+      <li><strong>自己建测试集才是最终答案</strong>：MTEB 再怎么好，也不如你在自己的业务数据上跑一次 Recall@K 对比。本课最后的动手实践就是做这个。</li>
+    </ol>
+
+    <div class="panel good">
+      <h3>快速判定指南</h3>
+      <p>当你要选一个 embedding 模型时，按这个顺序查看：</p>
+      <ol>
+        <li><strong>Retrieval Avg 在不在前 20？</strong>（MTEB 上目前前排模型 Retrieval Avg 在 55-65 之间）</li>
+        <li><strong>中文场景？</strong>→ 看 C-MTEB 的 Retrieval 子项分数</li>
+        <li><strong>维度 vs 效果权衡？</strong>→ 如果两个模型 Retrieval Avg 差不到 1 分，选维度小的那个（速度更快、存储更省）</li>
+        <li><strong>成本敏感？</strong>→ 开源模型（BGE/m3e）通常免费但需要 GPU；闭源 API 按 token 收费但零运维</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ===================== 3. 四类模型横向对比 ===================== -->
+  <section>
+    <h2>第三步：四类模型横向对比——选型全景图</h2>
+
+    <p>当前主流的 embedding 模型可以分为四大家族。下面从<strong>效果、成本、部署、中文支持</strong>四个维度横向对比。</p>
+
+    <h3>总览对比表</h3>
+    <div style="overflow-x:auto;">
+    <table>
+      <tr>
+        <th>维度</th>
+        <th><span class="tag api">OpenAI</span></th>
+        <th><span class="tag bge">BGE (BAAI)</span></th>
+        <th><span class="tag coh">Cohere</span></th>
+        <th><span class="tag jina">Jina AI</span></th>
+      </tr>
+      <tr>
+        <td>代表模型</td>
+        <td>text-embedding-3-small / large</td>
+        <td>BGE-M3 / bge-multilingual-gemma2</td>
+        <td>embed-v3 (english / multilingual)</td>
+        <td>jina-embeddings-v3</td>
+      </tr>
+      <tr>
+        <td>向量维度</td>
+        <td>small: 512, large: 256/512/1024/3072</td>
+        <td>BGE-M3: 1024</td>
+        <td>multilingual: 1024</td>
+        <td>v3: 512/1024</td>
+      </tr>
+      <tr>
+        <td>上下文长度</td>
+        <td>8192 (small/large)</td>
+        <td>8192 (BGE-M3)</td>
+        <td>512</td>
+        <td>8192</td>
+      </tr>
+      <tr>
+        <td>中文效果</td>
+        <td style="font-weight:700;color:var(--good);">⭐⭐⭐⭐⭐</td>
+        <td style="font-weight:700;color:var(--good);">⭐⭐⭐⭐⭐</td>
+        <td>⭐⭐⭐</td>
+        <td>⭐⭐⭐⭐</td>
+      </tr>
+      <tr>
+        <td>英文效果</td>
+        <td style="font-weight:700;color:var(--good);">⭐⭐⭐⭐⭐</td>
+        <td>⭐⭐⭐⭐</td>
+        <td style="font-weight:700;color:var(--good);">⭐⭐⭐⭐⭐</td>
+        <td>⭐⭐⭐⭐</td>
+      </tr>
+      <tr>
+        <td>价格（百万 token）</td>
+        <td>$0.02 (small) / $0.13 (large)</td>
+        <td>免费（自部署）</td>
+        <td>$0.10 (multilingual)</td>
+        <td>免费（自部署）/$0.01(token, API)</td>
+      </tr>
+      <tr>
+        <td>部署方式</td>
+        <td>仅云 API</td>
+        <td>本地 / HuggingFace / Ollama</td>
+        <td>仅云 API</td>
+        <td>本地 / HuggingFace / API</td>
+      </tr>
+      <tr>
+        <td>私有化</td>
+        <td style="color:var(--bad);">✗</td>
+        <td style="color:var(--good);">✓</td>
+        <td style="color:var(--bad);">✗</td>
+        <td style="color:var(--good);">✓</td>
+      </tr>
+      <tr>
+        <td>是否开源</td>
+        <td style="color:var(--bad);">✗</td>
+        <td style="color:var(--good);">Apache 2.0</td>
+        <td style="color:var(--bad);">✗</td>
+        <td style="color:var(--good);">Apache 2.0</td>
+      </tr>
+    </table>
+    </div>
+
+    <h3>模型详解</h3>
+
+    <h4><span class="tag api">OpenAI：行业标杆，但封闭</span></h4>
+    <ul>
+      <li><strong>text-embedding-3-small</strong>：性价比之王。512 维就能达到接近前代 ada-002 的效果，建议作为 RAG 项目的<strong>默认选择</strong></li>
+      <li><strong>text-embedding-3-large</strong>：支持降维（256/512/1024/3072），3072 维时效果最佳，但成本高 6.5 倍</li>
+      <li><strong>核心优势</strong>：零部署、效果稳定、多语言（含中文）表现优秀</li>
+      <li><strong>核心劣势</strong>：数据出境、无法私有化、成本随用量线性增长</li>
+    </ul>
+
+    <h4><span class="tag bge">BGE (BAAI)：中文场景第一选择</span></h4>
+    <ul>
+      <li><strong>BGE-M3</strong>：支持多语言、多粒度（词/句/文档）、多种检索方式（Dense/Sparse/Multi-Vector）的单一模型，目前中文+英文最佳开源选择</li>
+      <li><strong>bge-large-zh-v1.5</strong>：纯中文场景经典选择，1024 维，效果对标 ada-002</li>
+      <li><strong>bge-multilingual-gemma2</strong>：基于 Gemma 2 的 2.7B 参数大模型，效果接近商业 API</li>
+      <li><strong>核心优势</strong>：中文效果接近 OpenAI、完全开源、支持私有化部署</li>
+      <li><strong>核心劣势</strong>：需要 GPU 推理（小模型可 CPU，但慢）；部署运维成本</li>
+    </ul>
+
+    <h4><span class="tag coh">Cohere：英文检索之王</span></h4>
+    <ul>
+      <li><strong>embed-english-v3.0</strong>：英文 Retrieval 效果经常排名前三</li>
+      <li><strong>embed-multilingual-v3.0</strong>：支持 100+ 语言，但中文效果不及 BGE</li>
+      <li><strong>核心优势</strong>：英文检索质量极佳；支持压缩（压缩率 32 倍）减少存储</li>
+      <li><strong>核心劣势</strong>：中文效果一般；纯 API 无私有化；最大上下文仅 512 token</li>
+    </ul>
+
+    <h4><span class="tag jina">Jina AI：Long Context 专精</span></h4>
+    <ul>
+      <li><strong>jina-embeddings-v3</strong>：支持 8192 token 上下文，适合长文档场景</li>
+      <li><strong>Jina-CLIP v2</strong>：支持图文多模态 embedding</li>
+      <li><strong>核心优势</strong>：长上下文；开源可自部署；支持多模态</li>
+      <li><strong>核心劣势</strong>：中文效果不如 BGE；社区规模较小</li>
+    </ul>
+
+    <div class="diagram">
+      <p><strong>效果 vs 成本 四象限矩阵</strong></p>
+      <table style="max-width:480px;margin:0 auto;">
+        <tr>
+          <td style="border:none;"></td>
+          <th style="text-align:center;border:none;background:transparent;">低成本</th>
+          <th style="text-align:center;border:none;background:transparent;">高成本</th>
+        </tr>
+        <tr>
+          <th style="text-align:right;border:none;background:transparent;">高质量</th>
+          <td style="background:#edf8ef;">BGE-M3<br><span class="small">免费·私部署·中文强</span></td>
+          <td style="background:#fef3e2;">OpenAI large<br><span class="small">$0.13/M·最高分·全托管</span></td>
+        </tr>
+        <tr>
+          <th style="text-align:right;border:none;background:transparent;">中质量</th>
+          <td style="background:#edf8ef;">BGE-small / m3e<br><span class="small">免费·CPU可跑·够用</span></td>
+          <td style="background:#fef3e2;">Cohere multilingual<br><span class="small">$0.10/M·英文强中文弱</span></td>
+        </tr>
+      </table>
+      <p class="small">推荐阅读：<a href="https://huggingface.co/spaces/mteb/leaderboard">MTEB Leaderboard</a> 查看最新排名</p>
+    </div>
+
+  </section>
+
+  <!-- ===================== 4. 中文 Embedding 深度评测 ===================== -->
+  <section>
+    <h2>第四步：中文 Embedding 深度评测——五款模型专项对比</h2>
+
+    <p>如果你面向中文场景，下面五款开源模型值得重点关注。我们用同一组中文测试数据、同一个检索流程来对比它们的真实表现。</p>
+
+    <h3>参评模型一览</h3>
+    <table>
+      <tr><th>模型</th><th>维度</th><th>参数规模</th><th>开源协议</th><th>MTEB Retr.</th><th>C-MTEB Retr.</th></tr>
+      <tr><td><strong>BAAI/bge-large-zh-v1.5</strong></td><td>1024</td><td>335M</td><td>MIT</td><td>—</td><td rowspan="4">约 60-75<br><span class="small">（C-MTEB Retrieval）</span></td></tr>
+      <tr><td><strong>moka-ai/m3e-large</strong></td><td>768</td><td>326M</td><td>MIT</td><td>—</td></tr>
+      <tr><td><strong>infgrad/stella-base-zh-v3-1792d</strong></td><td>1792</td><td>~100M</td><td>MIT</td><td>—</td></tr>
+      <tr><td><strong>Alibaba-NLP/gte-Qwen2-1.5B-instruct</strong></td><td>1536</td><td>1.5B</td><td>Apache 2.0</td><td>—</td></tr>
+      <tr><td><strong>shibing624/text2vec-base-chinese</strong></td><td>768</td><td>102M</td><td>Apache 2.0</td><td>—</td><td>约 50</td></tr>
+    </table>
+
+    <p class="small">注意：MTEB 和 C-MTEB 榜单的分值会随版本更新而变化。上表提供的是参考范围，请在 <a href="https://huggingface.co/spaces/mteb/leaderboard">MTEB Leaderboard</a> 查询最新数据。</p>
+
+    <h3>各模型的特点和最佳场景</h3>
+
+    <table>
+      <tr><th>模型</th><th>核心特点</th><th>最佳场景</th><th>硬件要求</th></tr>
+      <tr>
+        <td><strong>bge-large-zh-v1.5</strong></td>
+        <td>BAAI 出品，中文检索质量经过大量验证；支持规范化的 <code>instruction</code> 设置（查询前加 <code>为这段文字生成表示以用于检索：</code>）</td>
+        <td><strong>中文通用检索首选</strong>；客服问答、文档搜索</td>
+        <td>8GB GPU / CPU 较慢可用</td>
+      </tr>
+      <tr>
+        <td><strong>m3e-large</strong></td>
+        <td>基于 BERT 的轻量级模型；推理速度快；社区评价中文 CoSENT 数据训练</td>
+        <td><strong>轻量部署、CPU 推理</strong>；对精度要求不极端敏感的场景</td>
+        <td>4GB GPU / CPU 可用</td>
+      </tr>
+      <tr>
+        <td><strong>stella-base-zh-v3</strong></td>
+        <td>基于 BERT 但输出 1792 维（通过投影层扩展），兼顾小模型参数 + 大模型维度；在多个中文数据集表现不错</td>
+        <td><strong>需要低参数量但高维度</strong>的场景</td>
+        <td>4GB GPU / CPU 可用</td>
+      </tr>
+      <tr>
+        <td><strong>gte-Qwen2-1.5B-instruct</strong></td>
+        <td>基于 Qwen2 的 decoder-only 大模型，1.5B 参数；需要较多显存但效果接近 API 水平；支持 instruction 格式的输入</td>
+        <td><strong>精度要求高的场景</strong>；预算有限但需要接近 API 效果</td>
+        <td>8-16GB GPU 推荐</td>
+      </tr>
+      <tr>
+        <td><strong>text2vec-base-chinese</strong></td>
+        <td>最轻量的选择；102M 参数；CPU 也能跑；但效果在五款中相对较弱</td>
+        <td><strong>极端资源受限</strong>；纯 CPU 部署、Raspberry Pi 等</td>
+        <td>2GB GPU / CPU 流畅</td>
+      </tr>
+    </table>
+
+    <div class="panel warn">
+      <h3>一个容易犯的错误：instruction 格式</h3>
+      <p>BGE 和 GTE 这类模型对输入格式有特别要求：</p>
+      <ul>
+        <li><strong>查询（query）</strong>需要加特定前缀，如 BGE 用 <code>"为这段文字生成表示以用于检索："</code></li>
+        <li><strong>文档（document）</strong>不需要前缀，或者用不同的前缀</li>
+      </ul>
+      <p>如果忽略这一点，检索效果可能下降 10-20%。不同版本的 BGE 要求不同，请务必查看模型的 HuggingFace 文档。</p>
+      <pre><code># BGE-zh-v1.5 的正确用法
+query_emb = model.encode("为这段文字生成表示以用于检索：" + query)
+doc_emb  = model.encode(doc_text)  # 文档不需要前缀</code></pre>
+    </div>
+
+  </section>
+
+  <!-- ===================== 5. EmbeddingAdapter 适配层 ===================== -->
+  <section>
+    <h2>第五步：构建 EmbeddingAdapter——可热切换的模型适配层</h2>
+
+    <p>前面的课程里，我们用 OpenAI 的 embedding 接口是直接硬编码的：</p>
+
+    <pre style="background:#fff5f5;border-color:var(--bad);"><code># 旧代码：硬编码，换模型要改多处
+response = openai_client.embeddings.create(
+    model="text-embedding-3-small",
+    input=text,
+)
+emb = response.data[0].embedding</code></pre>
+
+    <p>如果要切换到 BGE 或者其他模型，就得改多处代码，而且不同的模型有不同的参数、不同的调用方式。这显然不是生产级的做法。</p>
+
+    <p>下面我们设计一个统一的 <strong>EmbeddingAdapter</strong> 抽象层：</p>
+
+    <div class="flow">
+      <span class="flow-box">应用代码</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-box" style="border-color:#6d28d9; background:#f3f0ff;"><strong>EmbeddingAdapter.encode()</strong></span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-box">OpenAI<br><span class="small">(API)</span></span>
+      <span class="flow-arrow">或</span>
+      <span class="flow-box">HuggingFace<br><span class="small">(本地模型)</span></span>
+      <span class="flow-arrow">或</span>
+      <span class="flow-box">Ollama<br><span class="small">(本地服务)</span></span>
+    </div>
+
+    <pre><code>"""embedding_adapter.py — 统一 Embedding 模型适配层"""
+import numpy as np
+from abc import ABC, abstractmethod
+from typing import list
+
+
+class EmbeddingAdapter(ABC):
+    """抽象基类：所有 embedding 模型的统一接口。"""
+
+    @abstractmethod
+    def encode(self, texts: list[str]) -> np.ndarray:
+        """
+        将文本列表编码为向量矩阵。
+        返回: shape (len(texts), dim) 的 numpy 数组
+        """
+        ...
+
+    @abstractmethod
+    def dim(self) -> int:
+        """返回向量的维度"""
+        ...
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """模型名称标识"""
+        ...
+
+
+# ─── OpenAI 实现 ───────────────────────────────────────────
+class OpenAIEmbedding(EmbeddingAdapter):
+    def __init__(self, model: str = "text-embedding-3-small", dimensions: int = 512):
+        from openai import OpenAI
+        self.client = OpenAI()
+        self.model = model
+        self._dim = dimensions
+
+    def encode(self, texts: list[str]) -> np.ndarray:
+        # OpenAI 支持批量，但为了简化按单条处理
+        # 生产环境建议用 batch 减少 API 调用次数
+        response = self.client.embeddings.create(
+            model=self.model,
+            input=texts,
+            dimensions=self._dim,
+        )
+        # 按输入顺序排列
+        sorted_data = sorted(response.data, key=lambda x: x.index)
+        vectors = [item.embedding for item in sorted_data]
+        return np.array(vectors, dtype=np.float32)
+
+    def dim(self) -> int:
+        return self._dim
+
+    @property
+    def name(self) -> str:
+        return f"openai:{self.model}"
+
+
+# ─── HuggingFace 本地模型实现 ──────────────────────────────
+class HuggingFaceEmbedding(EmbeddingAdapter):
+    def __init__(
+        self,
+        model_name: str = "BAAI/bge-large-zh-v1.5",
+        device: str | None = None,
+        query_instruction: str = "为这段文字生成表示以用于检索：",
+    ):
+        from sentence_transformers import SentenceTransformer
+        self.model = SentenceTransformer(model_name, device=device)
+        self._dim = self.model.get_sentence_embedding_dimension()
+        self.query_instruction = query_instruction
+
+    def encode(self, texts: list[str]) -> np.ndarray:
+        embeddings = self.model.encode(
+            texts,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+        return np.array(embeddings, dtype=np.float32)
+
+    def encode_queries(self, texts: list[str]) -> np.ndarray:
+        """给查询加指令前缀后再编码（BGE 系列必用）。"""
+        prefixed = [self.query_instruction + t for t in texts]
+        return self.encode(prefixed)
+
+    def dim(self) -> int:
+        return self._dim
+
+    @property
+    def name(self) -> str:
+        return f"hf:{self.model_name}"
+
+
+# ─── Ollama 本地服务实现 ────────────────────────────────────
+class OllamaEmbedding(EmbeddingAdapter):
+    def __init__(self, model: str = "bge-m3", base_url: str = "http://localhost:11434"):
+        import requests
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self._session = requests.Session()
+        # 获取维度（Ollama 支持的模型在 pulling 后会返回）
+        self._dim = 1024  # BGE-M3 默认 1024，生产环境可动态获取
+
+    def encode(self, texts: list[str]) -> np.ndarray:
+        vectors = []
+        for text in texts:
+            resp = self._session.post(
+                f"{self.base_url}/api/embeddings",
+                json={"model": self.model, "prompt": text},
+            )
+            resp.raise_for_status()
+            vectors.append(resp.json()["embedding"])
+        return np.array(vectors, dtype=np.float32)
+
+    def dim(self) -> int:
+        return self._dim
+
+    @property
+    def name(self) -> str:
+        return f"ollama:{self.model}"
+
+
+# ─── 配置化工厂 ────────────────────────────────────────────
+def create_embedding(config: dict) -> EmbeddingAdapter:
+    """
+    从配置字典创建 embedding 适配器。
+
+    配置示例:
+    config = {
+        "provider": "openai",
+        "model": "text-embedding-3-small",
+        "dimensions": 512,
+    }
+    config = {
+        "provider": "huggingface",
+        "model_name": "BAAI/bge-large-zh-v1.5",
+        "device": "cpu",
+    }
+    config = {
+        "provider": "ollama",
+        "model": "bge-m3",
+        "base_url": "http://localhost:11434",
+    }
+    """
+    provider = config["provider"]
+    if provider == "openai":
+        return OpenAIEmbedding(
+            model=config.get("model", "text-embedding-3-small"),
+            dimensions=config.get("dimensions", 512),
+        )
+    elif provider == "huggingface":
+        return HuggingFaceEmbedding(
+            model_name=config.get("model_name", "BAAI/bge-large-zh-v1.5"),
+            device=config.get("device"),
+            query_instruction=config.get("query_instruction",
+                                          "为这段文字生成表示以用于检索："),
+        )
+    elif provider == "ollama":
+        return OllamaEmbedding(
+            model=config.get("model", "bge-m3"),
+            base_url=config.get("base_url", "http://localhost:11434"),
+        )
+    else:
+        raise ValueError(f"不支持的 provider: {provider}")
+
+
+# ─── 快速测试 ──────────────────────────────────────────────
+if __name__ == "__main__":
+    # 测试切换不同的 embedding 模型
+    configs = [
+        {"provider": "openai", "model": "text-embedding-3-small", "dimensions": 512},
+        # 如果有本地模型，取消注释以下配置：
+        # {"provider": "huggingface", "model_name": "BAAI/bge-large-zh-v1.5", "device": "cpu"},
+        # {"provider": "ollama", "model": "bge-m3", "base_url": "http://localhost:11434"},
+    ]
+
+    test_texts = ["退货政策是什么", "订单发货时间", "如何申请发票"]
+
+    for cfg in configs:
+        adapter = create_embedding(cfg)
+        emb = adapter.encode(test_texts)
+        print(f"[{adapter.name}] dim={adapter.dim()}, shape={emb.shape}")
+        # 检查余弦相似度（语义相近的应该分高）
+        cos = np.dot(emb[0], emb[1]) / (
+            np.linalg.norm(emb[0]) * np.linalg.norm(emb[1])
+        )
+        print(f"  退货政策 vs 订单发货 相似度: {cos:.4f}")</code></pre>
+
+    <div class="panel good">
+      <h3>适配层带来的好处</h3>
+      <ul>
+        <li><strong>一行配置切换模型</strong>：改 config 字典即可，不需要改业务代码</li>
+        <li><strong>可以自由扩展新模型</strong>：写一个新类继承 <code>EmbeddingAdapter</code>，在 <code>create_embedding</code> 加一个 case 就行</li>
+        <li><strong>便于 A/B 测试</strong>：在同一个评估流程里，只需替换 adapter 实例即可对比不同模型</li>
+        <li><strong>向量标准化统一处理</strong>：HuggingFace 实现里 <code>normalize_embeddings=True</code>，确保余弦相似度计算正确</li>
+      </ul>
+    </div>
+
+  </section>
+
+  <!-- ===================== 6. 本地部署私有化 Embedding ===================== -->
+  <section>
+    <h2>第六步：本地部署私有化 Embedding——Ollama 和 Infinity</h2>
+
+    <p>对于数据敏感的场景（金融、医疗、军工），或者希望长期节省 API 费用，本地部署是唯一选择。有两种主流方式：</p>
+
+    <h3>方案一：Ollama（最简单，推荐入门）</h3>
+    <p>Ollama 是一个本地大模型运行工具，支持一键下载和运行 embedding 模型。</p>
+
+    <pre><code># 1. 安装 Ollama（Linux/macOS）
+curl -fsSL https://ollama.com/install.sh | sh
+
+# 2. 拉取 embedding 模型（以 bge-m3 为例）
+ollama pull bge-m3
+
+# 3. 测试 embedding
+curl http://localhost:11434/api/embeddings \
+  -d '{"model": "bge-m3", "prompt": "退货政策是什么"}'</code></pre>
+
+    <p>如果要用 Ollama 的 Python 客户端：</p>
+
+    <pre><code>pip install ollama
+
+import ollama
+
+resp = ollama.embeddings(model="bge-m3", prompt="退货政策是什么")
+print(len(resp["embedding"]))  # 1024</code></pre>
+
+    <table>
+      <tr><th>模型</th><th>Ollama 名字</th><th>维度</th><th>大小</th></tr>
+      <tr><td>BGE-M3</td><td><code>bge-m3</code></td><td>1024</td><td>~2.2GB</td></tr>
+      <tr><td>BGE-large-zh-v1.5</td><td><code>bge-large-zh-v1.5</code></td><td>1024</td><td>~1.3GB</td></tr>
+      <tr><td>BGE-small-zh-v1.5</td><td><code>bge-small-zh-v1.5</code></td><td>512</td><td>~130MB</td></tr>
+      <tr><td>nomic-embed-text</td><td><code>nomic-embed-text</code></td><td>768</td><td>~274MB</td></tr>
+      <tr><td>snowflake-arctic-embed</td><td><code>snowflake-arctic-embed</code></td><td>1024</td><td>~669MB</td></tr>
+    </table>
+
+    <div class="panel info">
+      <h3>Ollama 还能做什么？</h3>
+      <p>Ollama 不仅能跑 embedding 模型，还能跑生成模型（qwen2.5、llama3、deepseek 等）。在模块二之前的课程里，我们用的是 OpenAI API 做生成。到 L13 生产化部署时，Ollama 可以同时提供 embedding + 生成两种能力，让你完全脱离外部 API 依赖。</p>
+    </div>
+
+    <h3>方案二：Infinity（高性能，推荐生产）</h3>
+    <p><a href="https://github.com/michaelfeil/infinity">Infinity</a> 是一个高性能 embedding 模型部署工具，支持 GPU 加速、批量推理、分布式部署，适合生产环境。</p>
+
+    <pre><code># 安装
+pip install infinity-emb
+
+# 启动服务（Ollama 风格，但性能更好）
+infinity-emb \
+  --model-id BAAI/bge-large-zh-v1.5 \
+  --port 7997 \
+  --device cuda  # 或 cpu
+
+# Python 客户端
+from infinity_emb import AsyncEngineArray
+
+engine = AsyncEngineArray.from_args(
+    model_id=["BAAI/bge-large-zh-v1.5"],
+    engine_args_list=[{"device": "cuda"}],
+)
+
+response = await engine.embed(
+    texts=["退货政策是什么"],
+    model_id="BAAI/bge-large-zh-v1.5",
+)
+print(response[0]["embedding"])</code></pre>
+
+    <table>
+      <tr><th>特性</th><th>Ollama</th><th>Infinity</th></tr>
+      <tr><td>安装复杂度</td><td>⭐ 一行命令</td><td>⭐⭐ pip install</td></tr>
+      <tr><td>GPU 加速</td><td>✓（自动检测）</td><td>✓（CUDA 优化更好）</td></tr>
+      <tr><td>批量推理</td><td>✗（逐条）</td><td>✓（自动批量）</td></tr>
+      <tr><td>并发处理</td><td>有限（单线程）</td><td>✓（异步 + 多 worker）</td></tr>
+      <tr><td>模型覆盖</td><td>⭐⭐⭐⭐</td><td>⭐⭐⭐（Sentencetransformers 为主）</td></tr>
+      <tr><td>推荐场景</td><td>开发/Demo/轻量使用</td><td>生产环境/高并发</td></tr>
+    </table>
+
+  </section>
+
+  <!-- ===================== 7. 维度影响 ===================== -->
+  <section>
+    <h2>第七步：Embedding 维度对检索速度与质量的影响</h2>
+
+    <p>很多人以为"维度越大，效果越好"——这不一定对。维度、质量和速度之间存在复杂的权衡。</p>
+
+    <h3>维度越大 = 检索越慢（线性关系）</h3>
+    <p>向量相似性搜索的时间复杂度是 <code>O(N × D)</code>，其中 N 是向量数量，D 是维度。维度翻倍，检索时间也翻倍。更重要的是，HNSW/IVF 这类索引的构建时间和内存消耗也随 D 线性增长。</p>
+
+    <h3>维度越大 ≠ 效果越好（非线性关系）</h3>
+    <p>实验数据表明：</p>
+    <ul>
+      <li>从 256 维 → 512 维 → 1024 维：效果显著提升（信息容量增加）</li>
+      <li>从 1024 维 → 3072 维：提升微乎其微（边际效益递减）</li>
+      <li>更极端的：在某些数据集上，1024 维和 3072 维的 Retrieval 效果几乎一样，但速度慢了 3 倍</li>
+    </ul>
+
+    <div class="bar-chart">
+      <div class="bar"><div class="bar-fill api" style="height:50%;"><span class="label">256d</span><span class="value">Recall@10: 0.72</span></div></div>
+      <div class="bar"><div class="bar-fill api" style="height:70%;"><span class="label">512d</span><span class="value">0.81</span></div></div>
+      <div class="bar"><div class="bar-fill bge" style="height:85%;"><span class="label">1024d</span><span class="value">0.88</span></div></div>
+      <div class="bar"><div class="bar-fill coh" style="height:88%;"><span class="label">3072d</span><span class="value">0.89</span></div></div>
+    </div>
+    <p class="small" style="text-align:center;">示意图：维度 vs Recall@10 的边际效益递减。1024 维到 3072 维提升不足 2 个百分点，但检索成本增加 3 倍。</p>
+
+    <h3>实用建议</h3>
+    <table>
+      <tr><th>向量维度</th><th>适用场景</th></tr>
+      <tr><td>256-512</td><td>移动端、边缘设备、极端低延迟场景；使用 text-embedding-3-small (512d)</td></tr>
+      <tr><td>768-1024</td><td><strong>通用场景的最佳平衡点</strong>；大部分开源模型的默认维度，推荐选择</td></tr>
+      <tr><td>1536-3072</td><td>对精度要求极高且不介意成本和速度；OpenAI large 的 3072 或 GTE-Qwen2 的 1536</td></tr>
+    </table>
+
+    <div class="panel good">
+      <h3>正则化与余弦相似度</h3>
+      <p>绝大多数现代 embedding 模型输出的向量都做了 L2 正则化（长度 = 1）。被正则化后，余弦相似度和点积是等价的：<code>cos(a, b) = a · b</code>（因为 |a| = |b| = 1）。</p>
+      <p>这意味着你可以在向量数据库里存正则化后的向量，用点积（dot product）代替余弦相似度来计算相似度——点积在某些向量库中比余弦相似度快。</p>
+    </div>
+
+  </section>
+
+  <!-- ===================== 8. A/B 对比实验 ===================== -->
+  <section>
+    <h2>第八步：A/B 对比实验——让数据替你选择</h2>
+
+    <p>最终的选择不能靠"我感觉"——要用数据说话。我们将基于第 4 课的评估框架，用同一个 golden test set，对比不同 embedding 模型的 Recall@K 和 MRR。</p>
+
+    <p>在动手之前，请确保你理解了第 4 课（检索评估）的 golden set 格式和评估器。如果忘记了，<a href="0004-检索评估与重排序.html">点此回顾第 4 课</a>。</p>
+
+    <h3>实验设计</h3>
+    <pre><code>"""embedding_ab_test.py — Embedding 模型 A/B 对比实验"""
+import json
+import numpy as np
+from typing import Callable
+
+# 引入第 4 课的评估器
+# 假设你已经把第 4 课的 evaluator.py 保留在项目中
+# from evaluator import RetrieverEvaluator, RecallAtK, MRR
+
+from embedding_adapter import create_embedding, EmbeddingAdapter
+
+
+def build_simple_retriever(
+    adapter: EmbeddingAdapter,
+    documents: list[dict],
+) -> Callable:
+    """
+    用给定 embedding adapter 构建一个简单的向量检索器。
+
+    返回一个函数 retriever(query, top_k) → list[dict]
+    """
+    # 为所有文档预计算向量
+    texts = [doc["text"] for doc in documents]
+    doc_embeddings = adapter.encode(texts)
+
+    def retriever(query: str, top_k: int = 10) -> list[dict]:
+        query_emb = adapter.encode([query])
+        # 余弦相似度（向量已正则化 → dot product）
+        scores = np.dot(doc_embeddings, query_emb.T).squeeze()
+        top_indices = np.argsort(scores)[::-1][:top_k]
+
+        results = []
+        for idx in top_indices:
+            results.append({
+                "id": documents[idx]["id"],
+                "text": documents[idx]["text"],
+                "score": float(scores[idx]),
+                "retriever": adapter.name,
+            })
+        return results
+
+    return retriever
+
+
+def run_ab_test(
+    configs: list[dict],
+    documents: list[dict],
+    golden_set: list[dict],
+) -> dict:
+    """
+    对比多组 embedding 配置的检索效果。
+
+    configs: [{"provider":"openai", "model":"text-embedding-3-small", "dimensions":512}, ...]
+    documents: [{id, text}, ...]  # 知识库文档列表
+    golden_set: [{"query":..., "relevant_ids":[...]}, ...]  # golden test set
+
+    返回: {config_label: {"recall@5":..., "recall@10":..., "mrr":...}, ...}
+    """
+    results = {}
+
+    for cfg in configs:
+        print(f"\n{'='*50}")
+        print(f"测试配置: {cfg}")
+        print("=" * 50)
+
+        adapter = create_embedding(cfg)
+        retriever = build_simple_retriever(adapter, documents)
+
+        # 使用第 4 课的评估器（这里直接计算，没有 import 依赖）
+        recall_at_5 = 0
+        recall_at_10 = 0
+        mrr = 0
+
+        for item in golden_set:
+            query = item["query"]
+            relevant = set(item["relevant_ids"])
+            retrieved = retriever(query, top_k=10)
+            retrieved_ids = [r["id"] for r in retrieved]
+
+            # Recall@K
+            hits_5 = sum(1 for rid in retrieved_ids[:5] if rid in relevant)
+            hits_10 = sum(1 for rid in retrieved_ids if rid in relevant)
+            recall_at_5 += hits_5 / max(len(relevant), 1)
+            recall_at_10 += hits_10 / max(len(relevant), 1)
+
+            # MRR
+            for rank, rid in enumerate(retrieved_ids, 1):
+                if rid in relevant:
+                    mrr += 1.0 / rank
+                    break
+
+        n = len(golden_set)
+        results[adapter.name] = {
+            "recall@5": round(recall_at_5 / n, 4),
+            "recall@10": round(recall_at_10 / n, 4),
+            "mrr": round(mrr / n, 4),
+            "dim": adapter.dim(),
+        }
+
+        print(f"  Recall@5:  {results[adapter.name]['recall@5']}")
+        print(f"  Recall@10: {results[adapter.name]['recall@10']}")
+        print(f"  MRR:       {results[adapter.name]['mrr']}")
+        print(f"  维度:      {results[adapter.name]['dim']}")
+
+    return results
+
+
+# ─── 示例运行 ──────────────────────────────────────────────
+if __name__ == "__main__":
+    # 示例文档库（实际使用时应使用你的真实文档）
+    documents = [
+        {"id": "policy-1", "text": "7天无理由退货仅适用于未拆封商品，运费由买家承担。"},
+        {"id": "policy-2", "text": "已拆封但存在质量问题的商品，可在签收后15天内申请售后检测。"},
+        {"id": "policy-3", "text": "申请售后的流程：登录官网→我的订单→申请售后→上传凭证→等待审核。"},
+        {"id": "shipping-1", "text": "运费标准：订单满99元包邮，不满99元收取10元运费。"},
+        {"id": "shipping-2", "text": "发货时间：工作日16:00前下单当天发货，之后次日发货。"},
+        {"id": "invoice-1", "text": "发票申请：订单完成后可在'我的订单'中申请电子发票。"},
+        {"id": "invoice-2", "text": "电子发票与纸质发票具有同等法律效力，可在税务系统查验。"},
+        {"id": "return-1", "text": "退货退款周期：收到退货后3-5个工作日完成退款审核。"},
+        {"id": "sku-1", "text": "SK20240615订单目前状态为：已发货，预计3-5个工作日送达。"},
+        {"id": "sku-2", "text": "SK20240701订单状态：仓库已打包，等待快递揽收。"},
+        {"id": "complaint-1", "text": "投诉渠道：客服热线400-123-4567（工作日9:00-18:00）在线客服（App内）"},
+        {"id": "complaint-2", "text": "投诉处理时效：一般投诉48小时内回复，复杂投诉5个工作日内回复。"},
+    ]
+
+    # Golden test set（手工标注的正确答案）
+    golden_set = [
+        {"query": "退货政策是什么", "relevant_ids": ["policy-1", "policy-2", "return-1"]},
+        {"query": "包邮条件", "relevant_ids": ["shipping-1"]},
+        {"query": "如何申请发票", "relevant_ids": ["invoice-1"]},
+        {"query": "SK20240615的物流状态", "relevant_ids": ["sku-1"]},
+        {"query": "投诉渠道和时效", "relevant_ids": ["complaint-1", "complaint-2"]},
+        {"query": "售后申请流程", "relevant_ids": ["policy-3"]},
+        {"query": "退货退款要多久", "relevant_ids": ["return-1"]},
+        {"query": "电子发票有效吗", "relevant_ids": ["invoice-2"]},
+    ]
+
+    # 配置多个 embedding 模型做对比
+    test_configs = [
+        {"provider": "openai", "model": "text-embedding-3-small", "dimensions": 512},
+        # 如果有本地模型，可以取消注释：
+        # {"provider": "huggingface", "model_name": "BAAI/bge-large-zh-v1.5", "device": "cpu"},
+        # {"provider": "ollama", "model": "bge-m3", "base_url": "http://localhost:11434"},
+    ]
+
+    results = run_ab_test(test_configs, documents, golden_set)
+
+    # 输出汇总
+    print(f"\n{'='*50}")
+    print("A/B 测试汇总")
+    print("=" * 50)
+    print(f"{'模型':<30} {'Recall@5':<12} {'Recall@10':<12} {'MRR':<12} {'维度':<8}")
+    print("-" * 74)
+    for name, metrics in sorted(results.items(), key=lambda x: -x[1]["recall@10"]):
+        print(f"{name:<30} {metrics['recall@5']:<12.4f} {metrics['recall@10']:<12.4f} {metrics['mrr']:<12.4f} {metrics['dim']:<8}")</code></pre>
+
+    <div class="panel good">
+      <h3>怎样做一次严肃的 A/B 测试？</h3>
+      <ol>
+        <li><strong>Golden set 要覆盖多种查询类型</strong>：包含语义匹配（退货政策）、精确匹配（SKU号）、单文档查询（包邮条件）、多文档查询（投诉渠道+时效）</li>
+        <li><strong>不要用你自己的查询</strong>：请同事或朋友写测试查询——你设计的查询可能无意中偏向你熟悉的模型</li>
+        <li><strong>控制变量</strong>：只换 embedding 模型，所有其他参数（chunk_size、top_K、重排序）保持不变</li>
+        <li><strong>重复 3 次取平均</strong>：某些检索有随机性（HNSW），重复多次避免单次偏差</li>
+        <li><strong>记录时间</strong>：除了 Recall/MRR，还要记录索引构建时间和检索延迟，因为"够好但快 2 倍"可能是更好的选择</li>
+      </ol>
+    </div>
+
+  </section>
+
+  <!-- ===================== 9. 综合选型决策 ===================== -->
+  <section>
+    <h2>第九步：综合选型决策框架——用一张表做决定</h2>
+
+    <p>至此，你已经有了所有需要的信息。下面用一张决策表来整合选择过程：</p>
+
+    <div style="overflow-x:auto;">
+    <table>
+      <tr>
+        <th>你的场景</th>
+        <th>推荐选择</th>
+        <th>备选方案</th>
+        <th>理由</th>
+      </tr>
+      <tr>
+        <td><strong>学习 / 原型 / Demo</strong></td>
+        <td><span class="tag api">OpenAI small (512d)</span></td>
+        <td>任意本地模型</td>
+        <td>零部署、最快启动、效果有保障</td>
+      </tr>
+      <tr>
+        <td><strong>中文客服问答</strong></td>
+        <td><span class="tag bge">BGE-large-zh-v1.5</span></td>
+        <td>m3e-large、GTE-Qwen2</td>
+        <td>中文检索质量经过实战验证，可私有化部署</td>
+      </tr>
+      <tr>
+        <td><strong>中文+英文混合场景</strong></td>
+        <td><span class="tag bge">BGE-M3</span></td>
+        <td><span class="tag jina">Jina v3</span></td>
+        <td>BGE-M3 多语言效果极佳，还支持稀疏向量检索</td>
+      </tr>
+      <tr>
+        <td><strong>纯英文场景</strong></td>
+        <td><span class="tag coh">Cohere embed-v3</span></td>
+        <td><span class="tag api">OpenAI large</span></td>
+        <td>Cohere 英文检索经常排名前三，且有压缩选项</td>
+      </tr>
+      <tr>
+        <td><strong>高合规（军工/金融/医疗）</strong></td>
+        <td>Ollama + <span class="tag bge">BGE-M3</span></td>
+        <td>Infinity + GTE-Qwen2</td>
+        <td>全离线部署，数据不出域</td>
+      </tr>
+      <tr>
+        <td><strong>长文档 RAG（合同审查）</strong></td>
+        <td><span class="tag jina">Jina v3 (8192)</span></td>
+        <td><span class="tag bge">BGE-M3 (8192)</span></td>
+        <td>8192 token 上下文，一个 chunk 装下一份合同条款</td>
+      </tr>
+      <tr>
+        <td><strong>极端成本敏感 / 边缘设备</strong></td>
+        <td>m3e-small / text2vec</td>
+        <td><span class="tag bge">BGE-small-zh</span></td>
+        <td>参数量 < 100M，CPU 实时推理</td>
+      </tr>
+    </table>
+    </div>
+
+    <div class="panel warn">
+      <h3>最后提醒：embedding 不是越多越好</h3>
+      <p>很多团队犯的一个错误是：<strong>在同一个向量库里混用多个 embedding 模型生成的向量</strong>。比如文档用 BGE 索引、查询用 OpenAI 生成向量。向量空间是不同的，这样的检索效果会极差。</p>
+      <p><strong>正确的做法</strong>：整个 RAG 系统在某一时刻只使用一个 embedding 模型。切换模型时，需要重新索引所有文档。</p>
+    </div>
+
+  </section>
+
+  <!-- ===================== 10. 动手实践 ===================== -->
+  <section>
+    <h2>动手实践：从今天起，让数据替你选 Embedding</h2>
+
+    <div class="task">
+      <p><strong>任务 1：在你的项目里集成 EmbeddingAdapter</strong></p>
+      <ol>
+        <li>复制本课的 <code>embedding_adapter.py</code> 到你的项目中</li>
+        <li>把现有代码中直接调用 OpenAI embedding 的地方，替换成 <code>create_embedding(config)</code></li>
+        <li>验证替换后效果不变（用同一个查询，检查向量相似度）</li>
+      </ol>
+    </div>
+
+    <div class="task">
+      <p><strong>任务 2：运行 A/B 对比实验</strong></p>
+      <ol>
+        <li>用你的真实文档（至少 50+ 条）构建 golden test set（10-15 条查询）</li>
+        <li>配置 2-3 个不同的 embedding 模型做对比（至少包含 OpenAI + 一个开源模型）</li>
+        <li>运行 <code>embedding_ab_test.py</code>，记录 Recall@5 / Recall@10 / MRR</li>
+        <li>分析结果：哪个模型最适合你的场景？</li>
+      </ol>
+    </div>
+
+    <div class="task">
+      <p><strong>任务 3：本地部署并测试私有化 embedding</strong></p>
+      <ol>
+        <li>安装 Ollama，拉取 bge-m3 模型</li>
+        <li>在 EmbeddingAdapter 中使用 OllamaEmbedding</li>
+        <li>对比本地 bge-m3 和 OpenAI small 在你的 golden set 上的差异</li>
+        <li>记录两者的延迟差异（毫秒/条）</li>
+      </ol>
+    </div>
+
+    <div class="task">
+      <p><strong>任务 4：维度影响实验（可选）</strong></p>
+      <ol>
+        <li>使用 text-embedding-3-large，分别设置 dimensions=256/512/1024/3072</li>
+        <li>在同一份 golden set 上跑 Recall@K</li>
+        <li>看看在你的场景下，维度多大开始边际收益递减</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ===================== 11. 检索练习 ===================== -->
+  <section>
+    <h2>检索练习：检验你的存储强度</h2>
+    <p>以下问题请在阅读后合上页面，凭记忆回答。</p>
+
+    <div class="quiz">
+      <button data-q="q1" onclick="check(this, ['b'])">
+        <strong>Q1：在 MTEB 榜单中，RAG 选型最应该关注哪个指标？</strong><br>
+        A. 总分（Average）<br>
+        B. Retrieval Average<br>
+        C. Classification 分数<br>
+        D. STS 分数
+      </button>
+    </div>
+
+    <div class="quiz">
+      <button data-q="q2" onclick="check(this, ['c'])">
+        <strong>Q2：切换 embedding 模型时，以下哪个做法是正确的？</strong><br>
+        A. 查询用 OpenAI，文档用 BGE，因为两个都是好模型<br>
+        B. 只需要换查询的 embedding，文档的不用重新索引<br>
+        C. 整个系统只用一个 embedding 模型，切换时需要重新索引所有文档<br>
+        D. 维度越高越好，直接选最高维度的模型
+      </button>
+    </div>
+
+    <div class="quiz">
+      <button data-q="q3" onclick="check(this, ['b'])">
+        <strong>Q3：以下关于 embedding 维度的描述哪个是正确的？</strong><br>
+        A. 维度翻倍，检索速度翻倍，效果也翻倍<br>
+        B. 1024 维到 3072 维的效果提升通常远小于 256 维到 512 维的提升<br>
+        C. 3072 维永远比 512 维好，无论什么场景<br>
+        D. 维度只影响存储，不影响检索速度
+      </button>
+    </div>
+
+    <div class="quiz">
+      <button data-q="q4" onclick="check(this, ['a', 'c'])">
+        <strong>Q4：中文 RAG 场景下，哪些是首选的开源 embedding 模型？（多选）</strong><br>
+        A. BAAI/bge-large-zh-v1.5<br>
+        B. Cohere embed-multilingual-v3<br>
+        C. BAAI/BGE-M3<br>
+        D. Jina-embeddings-v3
+      </button>
+    </div>
+
+    <div class="quiz">
+      <button data-q="q5" onclick="check(this, ['b'])">
+        <strong>Q5：关于 EmbeddingAdapter 的作用，哪个描述最准确？</strong><br>
+        A. 提高 embedding 模型的精度<br>
+        B. 统一不同 embedding 模型的调用接口，实现配置化切换<br>
+        C. 加速向量检索速度<br>
+        D. 自动化标注 golden test set
+      </button>
+    </div>
+
+    <div id="quiz-feedback" class="feedback"></div>
+  </section>
+
+  <!-- ===================== 12. 故障诊断 ===================== -->
+  <section>
+    <h2>常见错误与排查</h2>
+
+    <div class="panel bad">
+      <h3>场景一：换了 embedding 模型后，检索效果反而变差了</h3>
+      <p><strong>可能的原因</strong>：</p>
+      <ol>
+        <li><strong>没有重新索引</strong>：新模型生成的向量和老模型的向量不在同一个向量空间，必须重新索引全部文档</li>
+        <li><strong>忘记加 instruction 前缀</strong>：BGE 等模型需要给查询加特定前缀，不加的话效果会下降</li>
+        <li><strong>向量未正则化</strong>：余弦相似度对未正则化的向量计算不正确。检查 <code>normalize_embeddings</code> 是否设为 True</li>
+      </ol>
+      <p><strong>排查步骤</strong>：</p>
+      <pre><code># 1. 检查向量是否已正则化
+emb = adapter.encode(["测试文本"])
+norm = np.linalg.norm(emb[0])
+print(f"向量长度: {norm:.6f}")  # 应该在 0.9999-1.0001 之间
+
+# 2. 检查原始 embedding 质量（不通过检索，直接看语义相似度）
+texts = ["退货政策是什么", "如何退货", "今天天气很好"]
+emb = adapter.encode(texts)
+# 期待："退货政策是什么" vs "如何退货" 相似度 > 0.7
+#       "退货政策是什么" vs "今天天气很好" 相似度 < 0.5
+print(np.dot(emb[0], emb[1]))  # 语义相近 → 分高
+print(np.dot(emb[0], emb[2]))  # 语义无关 → 分低</code></pre>
+    </div>
+
+    <div class="panel bad">
+      <h3>场景二：Ollama embedding 服务返回错误</h3>
+      <p><strong>症状</strong>：<code>requests.exceptions.ConnectionError: HTTPConnectionPool</code></p>
+      <p><strong>可能的原因和解决</strong>：</p>
+      <ol>
+        <li><strong>Ollama 服务未启动</strong>：运行 <code>ollama serve</code> 启动服务</li>
+        <li><strong>模型未拉取</strong>：检查 <code>ollama list</code> 是否有你需要的模型；用 <code>ollama pull bge-m3</code> 拉取</li>
+        <li><strong>端口不对</strong>：Ollama 默认端口是 11434，确认 <code>base_url</code> 是否指向正确的端口</li>
+      </ol>
+    </div>
+
+    <div class="panel bad">
+      <h3>场景三：HuggingFace 模型加载 OOM（内存不足）</h3>
+      <p><strong>症状</strong>：<code>CUDA out of memory</code> 或进程被 kill</p>
+      <p><strong>解决方案</strong>：</p>
+      <ol>
+        <li>换小模型：BGE-large（335M）→ BGE-base（110M）→ BGE-small（24M）</li>
+        <li>明确指定 device="cpu"：<br><code>model = SentenceTransformer("BAAI/bge-large-zh-v1.5", device="cpu")</code></li>
+        <li>用 Infinity 的服务化部署代替进程内加载，避免每个进程都加载一次模型</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ===================== 13. 延伸阅读 ===================== -->
+  <section>
+    <h2>延伸阅读</h2>
+    <ul>
+      <li><a href="https://huggingface.co/spaces/mteb/leaderboard">MTEB Leaderboard</a>（HuggingFace）— 实时查看所有 embedding 模型的排名</li>
+      <li><a href="https://arxiv.org/abs/2210.07316">BGE 论文："C-Pack: Packaged Resources To Advance General Chinese Embedding"</a> — BGE 背后的技术细节</li>
+      <li><a href="https://arxiv.org/abs/2402.03216">BGE-M3 论文："BGE M3-Embedding: Multi-Lingual, Multi-Functionality, Multi-Granularity Text Embedding"</a></li>
+      <li><a href="https://www.sbert.net/docs/pretrained_models.html">Sentence-Transformers Pretrained Models</a> — 完整的开源 embedding 模型列表</li>
+      <li><a href="https://github.com/michaelfeil/infinity">Infinity GitHub</a> — 高性能 embedding 模型推理引擎</li>
+      <li><a href="https://ollama.com/blog/embedding-models">Ollama Embedding Models</a> — Ollama 支持的 embedding 模型列表</li>
+      <li><a href="https://platform.openai.com/docs/guides/embeddings">OpenAI Embeddings Guide</a> — 官方 embedding 使用指南</li>
+    </ul>
+    <p class="small">前课回顾：<a href="0005-混合检索与查询转换.html">第 5 课：混合检索与查询转换</a>、<a href="0007-答案质量评估与RAGAS.html">第 7 课：答案质量评估与 RAGAS</a>、<a href="0008-rag-tech-stack-overview.html">第 8 课：RAG 技术栈全景图</a>。速查表：<a href="../reference/0012-embedding-model-selection-cheatsheet.html">Embedding 模型选型速查表</a>。</p>
+  </section>
+
+  <hr>
+  <p class="small" style="text-align:center;margin-top:30px;">
+    有任何不清楚的地方？向 AI 老师追问吧——embedding 选型是<span style="font-weight:700;">一劳永逸</span>的决定，花时间搞清楚非常值得。
+  </p>
+
+  <!-- ===================== 交互式脚本 ===================== -->
+  <script>
+    function check(btn, answers) {
+      const q = btn.dataset.q;
+      const parent = btn.parentElement;
+      const btns = parent.querySelectorAll('button');
+      const selected = [];
+      btns.forEach(b => {
+        if (b === btn) {
+          b.classList.toggle('selected');
+        }
+        if (b.classList.contains('selected')) {
+          selected.push(b);
+        }
+      });
+
+      // 变体按钮特殊处理（Q4 多选）
+      if (q === 'q4') {
+        btns.forEach(b => b.classList.remove('correct', 'wrong'));
+        const allSelected = Array.from(btns).filter(b => b.classList.contains('selected'));
+        const correctLabels = allSelected.map(b => {
+          const match = b.innerHTML.match(/^[A-Z]/);
+          return match ? match[0].toLowerCase() : '';
+        });
+        const isCorrect =
+          correctLabels.length === answers.length &&
+          answers.every(a => correctLabels.includes(a));
+        allSelected.forEach(b => {
+          const letter = b.innerHTML.match(/^[A-Z]/);
+          const l = letter ? letter[0].toLowerCase() : '';
+          b.classList.add(answers.includes(l) ? 'correct' : 'wrong');
+          b.classList.remove('selected');
+        });
+        // 标记未被选中的正确答案
+        btns.forEach(b => {
+          const letter = b.innerHTML.match(/^[A-Z]/);
+          const l = letter ? letter[0].toLowerCase() : '';
+          if (answers.includes(l) && !b.classList.contains('correct')) {
+            b.classList.add('correct');
+          }
+        });
+        const fb = document.getElementById('quiz-feedback');
+        fb.textContent = isCorrect ? '✓ 回答正确！' : '✗ 再想想';
+        fb.style.color = isCorrect ? 'var(--good)' : 'var(--bad)';
+        return;
+      }
+
+      // 单选
+      btns.forEach(b => {
+        b.classList.remove('correct', 'wrong');
+        if (b.classList.contains('selected')) {
+          const match = b.innerHTML.match(/^[A-Z]/);
+          const letter = match ? match[0].toLowerCase() : '';
+          b.classList.add(answers.includes(letter) ? 'correct' : 'wrong');
+          b.classList.remove('selected');
+        }
+      });
+      const anyCorrect = btns.some(b => b.classList.contains('correct'));
+      const fb = document.getElementById('quiz-feedback');
+      if (anyCorrect) {
+        fb.textContent = '✓ 回答正确！';
+        fb.style.color = 'var(--good)';
+      } else {
+        fb.textContent = '✗ 再想想';
+        fb.style.color = 'var(--bad)';
+      }
+    }
+  </script>
+
+</main>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>拒绝策略与兜底机制 — 速查表</title>
+  <style>
+    :root { --ink:#172033; --muted:#667085; --line:#d7dde8; --accent:#0f766e; --bg:#fbfcfe; --panel:#fff; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: ui-serif, Georgia, "Noto Serif SC", serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    main { max-width: 900px; margin:0 auto; padding:32px 20px; }
+    h1 { font-size:28px; margin:0 0 6px; }
+    .sub { color:var(--muted); margin-bottom:24px; }
+    h2 { font-size:17px; margin:20px 0 8px; border-bottom:1px solid var(--line); padding-bottom:4px; }
+    table { width:100%; border-collapse:collapse; margin:8px 0 16px; font-size:14px; }
+    th, td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+    th { background:#f0f2f5; font-weight:700; }
+    code { background:#eef6f5; padding:1px 4px; border-radius:3px; font-size:.92em; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    ul { padding-left:18px; margin:4px 0 12px; font-size:14px; }
+    li { margin:2px 0; }
+    .tag { display:inline-block; background:var(--accent); color:#fff; border-radius:3px; padding:1px 6px; font-size:11px; font-weight:700; }
+    .section { margin:0 0 8px; }
+    @media print { body { font-size:11px; } main { max-width:none; padding:15mm 20mm; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>🗺️ RAG 拒绝策略与兜底机制 · 速查表</h1>
+  <div class="sub">第 9 课 · 模块二：RAG 质量地基</div>
+
+  <h2>一、置信度评估三信号</h2>
+  <table>
+    <tr><th>信号</th><th>获取方式</th><th>优点</th><th>局限</th></tr>
+    <tr><td><strong>检索分数</strong></td><td><code>result.score</code>（余弦相似度 / BM25 分数）</td><td>最容易获取；零额外成本</td><td>不同模型分数分布不同；高分数不代表高相关性</td></tr>
+    <tr><td><strong>Cross-Encoder 相关性</strong></td><td>sentence-transformers Cross-Encoder 或 LLM 判断</td><td>比检索分数更准；能识别"高分噪音"</td><td>需要额外模型推理；增加时延 ~50-200ms</td></tr>
+    <tr><td><strong>生成 logprobs</strong></td><td><code>response.logprobs</code>（部分 API 支持）</td><td>反映 LLM 自身的自信度</td><td>不是所有模型支持；解释困难</td></tr>
+  </table>
+
+  <h2>二、置信度决策逻辑</h2>
+  <pre><code>def decide(query, results):
+    if not results:
+        return ("refuse", "no_knowledge")
+    top_score = max(r.score for r in results)
+    if top_score &lt; SCORE_THRESHOLD:
+        if top_score &lt; SCORE_THRESHOLD / 2:
+            return ("refuse", "low_confidence")
+        else:
+            return ("refuse", "low_confidence")  # 可改写重试
+    relevance = cross_encoder_verify(query, results)
+    if relevance &gt;= 0.5:
+        return ("answer", None)
+    elif relevance &gt;= 0.3:
+        return ("partial", "partial_knowledge")
+    else:
+        return ("refuse", "low_confidence")</code></pre>
+
+  <h2>三、三种拒答模板</h2>
+  <table>
+    <tr><th>类型</th><th>触发条件</th><th>模板核心</th><th>关键点</th></tr>
+    <tr><td><strong>🟡 透明拒答</strong></td><td>检索为空 / 完全不相关</td><td>"我的知识库中没有关于 XX 的信息"</td><td>归因于系统局限而非用户问题</td></tr>
+    <tr><td><strong>🟢 部分信息</strong></td><td>部分相关性，但不完整</td><td>"关于 XX 我可以告诉您 YY，但不完整"</td><td>明确标出信息边界</td></tr>
+    <tr><td><strong>🔵 引导拒答</strong></td><td>问题模糊 / 需要澄清</td><td>"为了更准确地帮助您，能否提供更多关于 ZZ 的信息？"</td><td>给用户具体可操作的澄清方向</td></tr>
+  </table>
+  <p class="small" style="color:var(--muted);">所有模板都必须包含：<strong>透明原因 + 后续行动建议</strong>（换种问法 / 联系人工 / 帮助中心）。</p>
+
+  <h2>四、多层兜底链</h2>
+  <table>
+    <tr><th>层级</th><th>操作</th><th>时延</th><th>成本</th><th>触发条件</th></tr>
+    <tr><td>1️⃣</td><td>本地向量检索 + 置信度评估</td><td>~200ms</td><td>≈0</td><td>所有查询</td></tr>
+    <tr><td>2️⃣</td><td>改写查询重试（Query Rewrite）</td><td>+~500ms</td><td>少量 LLM token</td><td>第一级低置信度时</td></tr>
+    <tr><td>3️⃣</td><td>联网搜索</td><td>+~1-3s</td><td>搜索 API 费</td><td>本地检索失败 + 需要实时信息</td></tr>
+    <tr><td>4️⃣</td><td>人工转接 + 工单生成</td><td>+~5s</td><td>客服工资</td><td>复杂 / 敏感 / 高价值问题</td></tr>
+  </table>
+  <p class="small" style="color:var(--muted);">原则：<strong>按成本递增</strong>——从便宜的本地操作开始，逐步升到昂贵的操作。</p>
+
+  <h2>五、覆盖度检测指标</h2>
+  <table>
+    <tr><th>指标</th><th>计算</th><th>目标值</th><th>说明</th></tr>
+    <tr><td>回答率</td><td>回答数 / 总查询数</td><td>≥ 70%（稳定）</td><td>不是越高越好——要同时保证答案质量</td></tr>
+    <tr><td>拒答率</td><td>拒答数 / 总查询数</td><td>≤ 20%</td><td>突然升高 = 检索退化信号</td></tr>
+    <tr><td>转人工率</td><td>转接数 / 总查询数</td><td>≤ 15%</td><td>过高意味着知识库缺口大</td></tr>
+    <tr><td>分类覆盖度</td><td>按知识库分类统计回答率</td><td>各分类 ≥ 60%</td><td>发现具体哪个分类缺知识</td></tr>
+  </table>
+
+  <h2>六、阈值校准</h2>
+  <p style="font-size:14px;">不同 embedding 模型的常用阈值经验值：</p>
+  <ul>
+    <li><strong>OpenAI text-embedding-3-small</strong> → <code>min_score = 0.65</code></li>
+    <li><strong>BGE-zh 系列</strong> → <code>min_score = 0.50</code></li>
+    <li><strong>BGE-M3</strong> → <code>min_score = 0.45</code></li>
+    <li><strong>本地小模型 (Ollama)</strong> → <code>min_score = 0.30</code></li>
+  </ul>
+  <p class="small" style="color:var(--muted);">以上是经验起点——必须用你的数据和场景进行 A/B 校准。校准方法：采样 200 条查询 → 人工标注"可用/不可用" → 遍历阈值找最大 F1。</p>
+
+  <h2>七、检查清单</h2>
+  <ul>
+    <li>☐ 检索为空时不硬答</li>
+    <li>☐ 检索分数 + Cross-Encoder 双重验证</li>
+    <li>☐ 拒答回复包含透明原因 + 后续建议</li>
+    <li>☐ 多层兜底链（改写 → 联网 → 人工）</li>
+    <li>☐ 所有拒答被记录到日志</li>
+    <li>☐ 每周生成覆盖度报告</li>
+    <li>☐ 拒答率被监控，异常升高有告警</li>
+    <li>☐ 阈值已针对你的 embedding 模型校准</li>
+  </ul>
+
+  <h2>八、参考模块清单</h2>
+  <table>
+    <tr><th>模块</th><th>功能</th><th>核心函数</th></tr>
+    <tr><td><code>confidence.py</code></td><td>检索置信度评估</td><td><code>assess_retrieval_confidence()</code><br><code>decide_if_should_answer()</code><br><code>cross_encoder_verify()</code></td></tr>
+    <tr><td><code>refusal_templates.py</code></td><td>拒答模板管理</td><td><code>render_refusal()</code><br><code>build_refusal_response()</code></td></tr>
+    <tr><td><code>fallback_chain.py</code></td><td>多层兜底链</td><td><code>execute_fallback_chain()</code><br><code>query_rewrite()</code><br><code>human_fallback()</code></td></tr>
+    <tr><td><code>coverage_monitor.py</code></td><td>覆盖度检测</td><td><code>CoverageMonitor.log_query()</code><br><code>CoverageMonitor.generate_report()</code></td></tr>
+    <tr><td><code>rag_with_refusal.py</code></td><td>完整 Pipeline 整合</td><td><code>RAGWithRefusal.answer()</code></td></tr>
+  </table>
+
+  <h2>九、相关课程</h2>
+  <ul>
+    <li><a href="../lessons/0007-答案质量评估与RAGAS.html">L7: 答案质量评估</a> — Faithfulness 指标用于验证拒答决策正确性</li>
+    <li><a href="../lessons/0010-conversational-rag.html">L10: 对话式 RAG</a> — 拒答策略在多轮对话中的延伸</li>
+    <li><a href="../lessons/0008-rag-tech-stack-overview.html">L8: 技术栈全景</a> — 联网搜索的模型选型依据</li>
+    <li><a href="../lessons/0018-rag-guardrails-human-fallback.html">L18: 安全护栏与人工兜底</a> — 人工转接机制的完整实现</li>
+  </ul>
+</main>
+</body>
+</html>

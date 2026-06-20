@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>对话式 RAG · 速查表</title>
+  <style>
+    :root { --ink:#172033; --muted:#667085; --line:#d7dde8; --accent:#0f766e; --bg:#fbfcfe; --panel:#fff; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: ui-serif, Georgia, "Noto Serif SC", serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    main { max-width: 900px; margin:0 auto; padding:32px 20px; }
+    h1 { font-size:28px; margin:0 0 6px; }
+    .sub { color:var(--muted); margin-bottom:24px; }
+    h2 { font-size:17px; margin:20px 0 8px; border-bottom:1px solid var(--line); padding-bottom:4px; }
+    h3 { font-size:15px; margin:14px 0 6px; }
+    table { width:100%; border-collapse:collapse; margin:8px 0 16px; font-size:14px; }
+    th, td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+    th { background:#f0f2f5; font-weight:700; }
+    code { background:#eef6f5; padding:1px 4px; border-radius:3px; font-size:.92em; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    pre { background:#f6f8fa; border:1px solid var(--line); border-radius:6px; padding:10px; font-size:13px; overflow-x:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    ul { padding-left:18px; margin:4px 0 12px; font-size:14px; }
+    li { margin:2px 0; }
+    .tag { display:inline-block; background:var(--accent); color:#fff; border-radius:3px; padding:1px 6px; font-size:11px; font-weight:700; }
+    .pull { background:#fafbfc; border-left:4px solid var(--accent); padding:8px 12px; margin:10px 0; font-size:14px; }
+    .col2 { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    @media print { body { font-size:11px; } main { max-width:none; padding:15mm 20mm; } .col2 { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>💬 对话式 RAG 与多轮对话管理 · 速查表</h1>
+  <div class="sub">第 10 课 · 模块二：RAG 质量地基</div>
+
+  <h2>一、Chat History 管理三种策略</h2>
+  <table>
+    <tr><th>策略</th><th>核心原理</th><th>Token 效率</th><th>LLM 额外开销</th><th>推荐场景</th></tr>
+    <tr><td><strong>滑动窗口</strong><br><span class="tag" style="background:#6d28d9;">推荐</span></td><td>只保留最近 N 轮</td><td>低（全量保留）</td><td>无</td><td>客服对话（默认首选）</td></tr>
+    <tr><td><strong>摘要压缩</strong></td><td>超过 M 轮后，LLM 压缩早期对话为摘要</td><td>高（≤200 token）</td><td>每次压缩 1 次 LLM 调用</td><td>超长文档分析</td></tr>
+    <tr><td><strong>关键轮次提取</strong></td><td>按重要性评分保留关键轮次</td><td>最高（只保留精华）</td><td>可选（规则或 LLM 评分）</td><td>关键信息驱动的对话</td></tr>
+  </table>
+
+  <div class="pull"><strong>实战起点：</strong>滑动窗口，<code>window_size=6</code>（覆盖 90% 客服场景）。对话超过 15-20 轮再考虑升级。</div>
+
+  <h2>二、指代消解</h2>
+  <table>
+    <tr><th>方法</th><th>怎么做</th><th>延迟</th><th>质量</th></tr>
+    <tr><td><strong>LLM 改写（推荐）</strong></td><td>在检索前将"它多少钱？"→"华为Mate60 Pro多少钱？"</td><td>+200~400ms</td><td>⭐⭐⭐⭐⭐</td></tr>
+    <tr><td><strong>规则改写</strong></td><td>正则匹配指代词，替换为最近的产品名实体</td><td>+~5ms</td><td>⭐⭐⭐</td></tr>
+    <tr><td><strong>检索时拼上下文</strong></td><td>将历史上下文拼接到检索查询末端</td><td>几乎无</td><td>⭐⭐</td></tr>
+  </table>
+
+  <p>优化技巧：仅当检测到指代词（它/该/这个/那个/上述）时才触发 LLM 改写，否则直接使用原查询。</p>
+
+  <h2>三、会话状态管理</h2>
+  <pre>SessionState = {
+    session_id: str,          # 会话唯一标识
+    user_id: str,             # 用户 ID
+    history: ChatHistory,     # 对话历史（三种策略之一）
+    created_at: datetime,     # 创建时间
+    last_active: datetime,    # 最后活跃时间
+    context: {                # 话题上下文
+        current_topic: str,       # 当前话题
+        mentioned_products: [],   # 提到的产品
+        resolved_issues: [],      # 已解决问题
+        pending_issues: [],       # 待解决问题
+    }
+}</pre>
+  <p>⚠️ 生产环境用 Redis 替代内存 dict 存储，避免进程重启丢失会话。</p>
+
+  <h2>四、多模型适配层统一接口</h2>
+  <pre>class BaseChatAdapter:
+    def chat(messages, temperature=0.7, max_tokens=1024) -> str
+    def get_model_info() -> dict  # {provider, model, context_window}
+
+# 三个实现：
+OpenAIChatAdapter   →  openai  + gpt-4o-mini (默认)
+TongyiChatAdapter   →  tongyi  + qwen-plus     (DashScope API)
+DeepSeekChatAdapter →  deepseek+ deepseek-chat (兼容 OpenAI SDK)
+
+# 工厂函数
+adapter = create_chat_adapter("openai", "gpt-4o-mini")</pre>
+
+  <h2>五、指代消解（LLM 版本）核心 prompt</h2>
+  <pre>"""你是一个查询改写专家。
+你的任务是将用户的当前问题改写为自包含的搜索查询
+——即使脱离对话历史也能理解。
+
+规则：
+1. 将"它""这个""那个""该产品"等指代词替换为具体名称
+2. 补全省略的信息
+3. 保留原文的核心意图
+4. 如果查询已经是自包含的，直接返回原文
+5. 只返回改写后的查询文本，不要解释"""</pre>
+
+  <h2>六、滑动窗口代码模板</h2>
+  <pre>class SlidingWindowHistory:
+    def __init__(self, window_size=6):
+        self.window_size = window_size
+        self.messages = []
+
+    def add_message(self, role, content):
+        self.messages.append({"role": role, "content": content})
+        self._trim()
+
+    def _trim(self):
+        max_msgs = self.window_size * 2 + 1  # +1 for system
+        if len(self.messages) > max_msgs:
+            keep = [self.messages[0]] if self.messages[0]["role"]=="system" else []
+            keep.extend(self.messages[-(self.window_size*2):])
+            self.messages = keep
+
+    def get_messages(self):
+        return self.messages
+
+    def get_recent_context(self, n=2):
+        recent = self.messages[-(n*2):]
+        return "\n".join(
+            f"{'用户' if m['role']=='user' else '助手'}: {m['content']}"
+            for m in recent
+        )</pre>
+
+  <h2>七、模型切换策略</h2>
+  <table>
+    <tr><th>策略</th><th>说明</th></tr>
+    <tr><td><strong>按问题复杂度</strong></td><td>简单问题 → gpt-4o-mini；复杂推理 → gpt-4o</td></tr>
+    <tr><td><strong>按合规要求</strong></td><td>退款/投诉/法律问题 → 国内模型（通义千问）</td></tr>
+    <tr><td><strong>容灾备用</strong></td><td>主模型 API 不可用 → 自动切 DeepSeek</td></tr>
+    <tr><td><strong>成本天窗</strong></td><td>高峰期用便宜模型，低峰期用强模型</td></tr>
+  </table>
+
+  <h2>八、故障排查 checklist</h2>
+  <table>
+    <tr><th>症状</th><th>检查项</th><th>修复</th></tr>
+    <tr><td>指代消解失败</td><td>① recent_context 是否包含产品名<br>② API Key 是否正确<br>③ LLM 返回了什么文本</td><td>启用规则版本兜底，或调整 prompt</td></tr>
+    <tr><td>对话越长响应越慢</td><td>① token_estimate 值是多少<br>② _trim() 是否生效</td><td>减小 window_size，检查裁剪逻辑</td></tr>
+    <tr><td>切换模型后报错</td><td>① 消息格式是否兼容<br>② system 消息是否存在</td><td>添加 _sanitize_messages() 清理函数</td></tr>
+  </table>
+
+  <h2>九、延迟优化黄金法则</h2>
+  <ol>
+    <li>滑动窗口 6 轮是安全起点</li>
+    <li>仅在检测到指代词时才触发 LLM 改写</li>
+    <li>system prompt 每 100 token 增加 TTFT ~30-50ms</li>
+    <li>用 streaming 降低用户感知延迟</li>
+  </ol>
+
+  <h2>十、TTFT 参考值（GPT-4o-mini）</h2>
+  <table>
+    <tr><th>历史长度</th><th>~Token</th><th>TTFT</th><th>体验</th></tr>
+    <tr><td>2 轮</td><td>400</td><td>~0.5s</td><td>✅ 优秀</td></tr>
+    <tr><td>6 轮</td><td>900</td><td>~1.0s</td><td>✅ 良好</td></tr>
+    <tr><td>10 轮</td><td>1500</td><td>~1.5s</td><td>⚠️ 可接受</td></tr>
+    <tr><td>20 轮</td><td>3000</td><td>~3.0s</td><td>❌ 用户会不耐烦</td></tr>
+  </table>
+</main>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prompt Engineering in RAG · 速查表</title>
+  <style>
+    :root { --ink:#172033; --muted:#667085; --line:#d7dde8; --accent:#0f766e; --bg:#fbfcfe; --panel:#fff; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: ui-serif, Georgia, "Noto Serif SC", serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    main { max-width: 900px; margin:0 auto; padding:32px 20px; }
+    h1 { font-size:28px; margin:0 0 6px; }
+    .sub { color:var(--muted); margin-bottom:24px; }
+    h2 { font-size:17px; margin:20px 0 8px; border-bottom:1px solid var(--line); padding-bottom:4px; }
+    h3 { font-size:15px; margin:14px 0 6px; }
+    table { width:100%; border-collapse:collapse; margin:8px 0 16px; font-size:14px; }
+    th, td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+    th { background:#f0f2f5; font-weight:700; }
+    code { background:#eef6f5; padding:1px 4px; border-radius:3px; font-size:.92em; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    pre { background:#f6f8fa; border:1px solid var(--line); border-radius:6px; padding:10px; font-size:13px; overflow-x:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    ul { padding-left:18px; margin:4px 0 12px; font-size:14px; }
+    li { margin:2px 0; }
+    .tag { display:inline-block; background:var(--accent); color:#fff; border-radius:3px; padding:1px 6px; font-size:11px; font-weight:700; }
+    .pull { background:#fafbfc; border-left:4px solid var(--accent); padding:8px 12px; margin:10px 0; font-size:14px; }
+    .col2 { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    .badge { display:inline-block; border-radius:3px; padding:1px 6px; font-size:11px; font-weight:700; }
+    .badge.good { background:#edf8ef; color:#116329; }
+    .badge.warn { background:#fef6e6; color:#8b5e00; }
+    .badge.bad { background:#fff0f2; color:#a10e25; }
+    @media print { body { font-size:11px; } main { max-width:none; padding:15mm 20mm; } .col2 { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>🧠 Prompt Engineering in RAG · 速查表</h1>
+  <div class="sub">第 11 课 · 模块二：RAG 质量地基</div>
+
+  <h2>一、System Prompt "四块积木"</h2>
+  <table>
+    <tr><th>积木</th><th>核心问题</th><th>一句话模板</th><th>常见错误</th></tr>
+    <tr>
+      <td>① 角色设定</td>
+      <td>你是谁</td>
+      <td><code>你是一个{公司}客服助手，专业、准确、友好。</code></td>
+      <td>不设角色 → 鼓励幻觉</td>
+    </tr>
+    <tr>
+      <td>② 知识范围</td>
+      <td>你知道什么</td>
+      <td><code>知识来源仅限于下方"检索结果"，不要使用训练数据中的知识。</code></td>
+      <td>知识边界模糊 → LLM 混用训练数据</td>
+    </tr>
+    <tr>
+      <td>③ 拒答指令</td>
+      <td>什么不能做</td>
+      <td><code>检索结果不包含答案时，直接说"暂无相关信息"，不要编造。</code></td>
+      <td>没有拒答 → LLM 宁愿编也不说不知道</td>
+    </tr>
+    <tr>
+      <td>④ 输出格式</td>
+      <td>怎么回答</td>
+      <td><code>每条信息标注[来源N]，使用分点结构。</code></td>
+      <td>不指定格式 → 风格不稳定</td>
+    </tr>
+  </table>
+  <div class="pull"><strong>关键词：</strong> A/B 测试每块积木——固定其他三块，只换一块，用 RAGAS 指标量化改进。</div>
+
+  <h2>二、Grounding Prompt 三种模式</h2>
+  <table>
+    <tr><th>模式</th><th>Faithfulness</th><th>幻觉率</th><th>场景</th></tr>
+    <tr><td><strong>strict</strong></td><td>0.92-0.98</td><td>&lt;5%</td><td><span class="badge good">推荐</span> 金融/医疗/法律</td></tr>
+    <tr><td><strong>standard</strong></td><td>0.85-0.93</td><td>5-15%</td><td><span class="badge good">★ 客服 Q&A</span>、企业知识库（默认选择）</td></tr>
+    <tr><td><strong>lenient</strong></td><td>0.70-0.80</td><td>15-25%</td><td>创意辅助、头脑风暴</td></tr>
+    <tr><td style="background:#fff0f2;"><strong>无 grounding</strong></td><td style="background:#fff0f2;">0.55-0.65</td><td style="background:#fff0f2;">30-50%</td><td style="background:#fff0f2;">不推荐任何生产场景</td></tr>
+  </table>
+  <div class="pull"><strong>实战建议：</strong> 从 strict 开始上线，按需放松。先确保准确，再优化自然度。</div>
+
+  <h2>三、Few-shot 示例策略</h2>
+  <table>
+    <tr><th>场景</th><th>推荐做法</th><th>示例数</th></tr>
+    <tr><td>格式敏感（表格/对比）</td><td><span class="badge good">必须加</span></td><td>1-2 个</td></tr>
+    <tr><td>多步推理</td><td><span class="badge good">推荐加</span></td><td>1-2 个</td></tr>
+    <tr><td>情感/语气控制</td><td><span class="badge good">推荐加</span></td><td>1 个</td></tr>
+    <tr><td>标准 QA</td><td>一般不需要</td><td>—</td></tr>
+  </table>
+  <div class="pull"><strong>动态选择 > 固定给：</strong> 用 embedding 或关键词匹配，选最相关的 1-2 个示例。比固定给 3 个不相关的示例更省 token 且效果更好。</div>
+
+  <h2>四、Chain-of-Thought 模式</h2>
+  <table>
+    <tr><th>模式</th><th>做法</th><th>Token 开销</th><th>场景</th></tr>
+    <tr><td><strong>direct</strong></td><td>"请一步步思考"</td><td>+50-100</td><td>多跳推理、对比</td></tr>
+    <tr><td><strong>structured</strong></td><td>已知信息→需要推理→结论</td><td>+100-300</td><td>可审计的严谨回答</td></tr>
+    <tr><td><strong>verify</strong></td><td>先检视每个声称是否有来源</td><td>+150-400</td><td>高准确度场景</td></tr>
+  </table>
+  <div class="pull"><strong>注意：</strong> CoT 会增加延迟（约 1.5x-2.5x）。只在需要多步推理时使用。简单的 FAQ 问答不需要 CoT。</div>
+
+  <h2>五、生成参数参考值</h2>
+  <table>
+    <tr><th>场景</th><th>temperature</th><th>top_p</th><th>max_tokens</th></tr>
+    <tr><td><span class="badge good">★ 客服 Q&A</span></td><td><strong>0.0 - 0.1</strong></td><td>0.9-1.0</td><td>512-1024</td></tr>
+    <tr><td><span class="badge good">★ 金融/医疗</span></td><td><strong>0.0</strong></td><td>1.0</td><td>512-1024</td></tr>
+    <tr><td>产品对比</td><td>0.0-0.1</td><td>0.9</td><td>1024-2048</td></tr>
+    <tr><td>多轮对话</td><td>0.3-0.5</td><td>0.9</td><td>1024</td></tr>
+    <tr><td>CoT 推理</td><td>0.1-0.3</td><td>0.9</td><td>1536-3072</td></tr>
+    <tr><td>知识库摘要</td><td>0.3-0.5</td><td>0.9</td><td>1024-2048</td></tr>
+  </table>
+  <div class="pull"><strong>黄金法则：</strong> RAG 场景的 temperature 应比纯 LLM 场景低 0.2-0.3。Temperature > 0.5 时 Faithfulness 急剧下降。</div>
+
+  <h2>六、多模型 Prompt 适配差异</h2>
+  <table>
+    <tr><th>模型</th><th>最适配的 prompt 风格</th><th>CoT 触发词</th><th>注意事项</th></tr>
+    <tr><td><strong>GPT-4o / 4o-mini</strong></td><td>指令式（最省事）</td><td>"请一步步思考"</td><td>指令遵循最强，不需要过度强调</td></tr>
+    <tr><td><strong>DeepSeek-V3/R1</strong></td><td>结构化指令（Bullet list）</td><td>"请一步一步推理"</td><td>R1 自带 CoT，不需要额外触发</td></tr>
+    <tr><td><strong>通义千问</strong></td><td>礼貌指令（加"您好""谢谢"）</td><td>"请逐步分析"</td><td>对角色设定敏感，适合礼貌用语</td></tr>
+    <tr><td><strong>Qwen2.5（本地）</strong></td><td>明确指令+示例（加强约束）</td><td>"让我们一步一步思考"</td><td>需要更明确的格式约束</td></tr>
+    <tr><td><strong>Llama 3.x</strong></td><td>规则清单 + 英文触发词</td><td>"Let's think step by step"</td><td>英文 CoT 触发效果优于中文</td></tr>
+  </table>
+
+  <h2>七、快速排查清单</h2>
+  <h3>回答质量差，从哪开始查？</h3>
+  <ol>
+    <li><strong>模型在用自己的知识而非检索结果？</strong> → 切到 strict grounding 模式 + 加"不要使用训练数据"指令</li>
+    <li><strong>引用格式不稳定？</strong> → 检查 temperature（应 &lt; 0.3）+ 加 few-shot 示例</li>
+    <li><strong>拒答不及时（编造答案）？</strong> → 确认 system prompt 中有明确的拒答指令积木</li>
+    <li><strong>回答太啰嗦？</strong> → 切换输出格式为"简洁回答"或降低 max_tokens</li>
+    <li><strong>换了模型效果大降？</strong> → 调用 <code>adapt_system_prompt()</code> 做模型适配</li>
+    <li><strong>多轮对话历史越长质量越差？</strong> → 降低 window_size + 确认滑动窗口裁剪生效</li>
+  </ol>
+
+  <h2>八、Prompt 改进效果量化（RAGAS）</h2>
+  <table>
+    <tr><th>改进措施</th><th>预期 Faithfulness 提升</th><th>成本变化</th></tr>
+    <tr><td>无 grounding → strict grounding</td><td>+0.30 ~ +0.40</td><td>零（只改 prompt 文本）</td></tr>
+    <tr><td>temperature 0.7 → 0.0</td><td>+0.10 ~ +0.20</td><td>零</td></tr>
+    <tr><td>加 few-shot 示例</td><td>+0.03 ~ +0.08</td><td>每轮 +150~300 token</td></tr>
+    <tr><td>加 CoT（structured）</td><td>+0.05 ~ +0.15</td><td>+100~300 token + 延迟 1.5x-2x</td></tr>
+  </table>
+  <div class="pull">📍 <strong>L11 课程链接：</strong> <a href="../lessons/0011-rag-prompt-engineering.html">第 11 课：Prompt Engineering 在 RAG 中的实践</a></div>
+</main>
+</body>
+</html>

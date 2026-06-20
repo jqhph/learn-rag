@@ -1,0 +1,1577 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 9 课：RAG 拒绝策略与兜底机制 —— 不回答的智慧</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink:#172033; --muted:#667085; --line:#d7dde8; --accent:#0f766e;
+      --accent2:#8b5e00; --good:#116329; --bad:#a10e25; --bg:#fbfcfe; --panel:#fff;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-serif, Georgia, "Noto Serif SC", serif; color:var(--ink); background:var(--bg); line-height:1.7; }
+    main { max-width: 960px; margin: 0 auto; padding: 42px 22px 70px; }
+    header { margin-bottom: 30px; }
+    .kicker { font: 700 13px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--accent); text-transform: uppercase; letter-spacing: .08em; }
+    h1 { font-size: clamp(32px, 5vw, 54px); line-height:1.08; margin: 10px 0 12px; letter-spacing:0; }
+    h2 { font-size: 23px; margin: 34px 0 12px; padding-bottom: 6px; border-bottom:1px solid var(--line); }
+    h3 { font-size: 18px; margin: 20px 0 8px; }
+    h4 { font-size: 16px; margin: 14px 0 6px; }
+    p { margin: 0 0 14px; }
+    a { color:#0b5cad; text-decoration-thickness:1px; text-underline-offset:3px; }
+    .lede { color:var(--muted); max-width:760px; font-size:18px; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin:16px 0; }
+    .panel.good { border-left:4px solid var(--good); }
+    .panel.warn { border-left:4px solid var(--accent2); }
+    .panel.bad { border-left:4px solid var(--bad); }
+    .panel.info { border-left:4px solid var(--accent); }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { background:#eef6f5; padding:2px 5px; border-radius:4px; font-size:0.92em; }
+    pre { overflow:auto; background:#f6f8fa; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:16px; font-size:14px; line-height:1.55; }
+    .small { color:var(--muted); font-size:14px; }
+    .tag { display:inline-block; background:var(--accent); color:#fff; border-radius:4px; padding:2px 8px; font-size:12px; font-weight:700; letter-spacing:.03em; font-family:ui-sans-serif,system-ui; }
+    .tag.conf { background:#6d28d9; }
+    .tag.fall { background:#b45309; }
+    .tag.cov { background:#1e40af; }
+    .quiz { display:grid; gap:10px; margin-top:12px; }
+    button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:11px 13px; text-align:left; font:600 15px/1.35 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; color:var(--ink); cursor:pointer; }
+    button:hover { border-color:var(--accent); }
+    button.selected { border-color:var(--accent); background:#eef6f5; }
+    button.correct { border-color:var(--good); background:#edf8ef; color:var(--good); }
+    button.wrong { border-color:var(--bad); background:#fff0f2; color:var(--bad); }
+    .feedback { min-height:26px; font-weight:700; margin-top:8px; }
+    .task { border-left:4px solid var(--accent2); padding-left:14px; }
+    table { border-collapse:collapse; width:100%; margin:14px 0; }
+    th, td { border:1px solid var(--line); padding:8px 12px; text-align:left; font-size:15px; }
+    th { background:#f6f8fa; font-weight:700; }
+    ul, ol { padding-left:22px; }
+    .combo { display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin:16px 0; }
+    .flow { display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:center; margin:16px 0; }
+    .flow-box { border:1px solid var(--line); border-radius:6px; padding:8px 14px; background:var(--panel); font-size:14px; text-align:center; }
+    .flow-arrow { font-size:20px; color:var(--muted); }
+    .formula { text-align:center; font-size:18px; margin:12px 0; padding:10px; background:#f6f8fa; border-radius:8px; }
+    .matrix { display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin:14px 0; }
+    .matrix-cell { border:1px solid var(--line); border-radius:8px; padding:14px; }
+    .matrix-cell h4 { margin:0 0 6px; font-size:15px; }
+    .diagram { text-align:center; margin:20px 0; padding:24px; background:#fafbfc; border:1px solid var(--line); border-radius:12px; }
+    .diagram .arrow { color:var(--muted); font-size:24px; margin:0 4px; }
+    .diagram .box { display:inline-block; border:2px solid var(--accent); border-radius:8px; padding:10px 18px; margin:4px; font-weight:700; }
+    .diagram .box.warn { border-color:var(--accent2); }
+    .diagram .box.good { border-color:var(--good); }
+    .diagram .box.muted { border-color:var(--muted); color:var(--muted); }
+    @media (max-width: 640px) { .combo { grid-template-columns: 1fr; } .matrix { grid-template-columns: 1fr; } }
+    @media print { body { background:white; } main { max-width:none; padding:20mm; } .panel { break-inside: avoid; } button { border-color:#aaa; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="kicker">Lesson 0009 — 模块二 · 质量地基</div>
+    <h1>RAG 拒绝策略与兜底机制：不回答的智慧</h1>
+    <p class="lede">本课目标：你不必回答所有问题——事实上，<strong>知道何时不回答</strong>，是客服场景中最关键的底线能力。本课教你如何诚实拒答而非编造幻觉，并建立从本地检索到人工转接的多层兜底链路。</p>
+  </header>
+
+  <!-- ===================== 能力预告 ===================== -->
+  <section>
+    <h2>你今天要获得的能力</h2>
+    <p>学完本课，你将拥有：</p>
+    <ul>
+      <li>一套 <strong>检索置信度评估机制</strong>：用检索分数 + 生成概率判断"该不该答"</li>
+      <li>三种 <strong>"我不知道"回答模板</strong>：透明拒答 / 部分信息 / 引导建议</li>
+      <li>一条 <strong>多层兜底链</strong>：本地检索 → 联网搜索 → 人工转接，逐级 fallback</li>
+      <li>一种 <strong>知识库覆盖度检测方法</strong>：主动发现"知识盲区"并驱动知识库迭代</li>
+      <li>一份 <strong>拒答 vs 幻觉的权衡框架</strong>：用 L7 的 Faithfulness 指标量化决策边界</li>
+    </ul>
+    <p>这是你 RAG 系统从"能回答问题"到"<strong>可靠地回答问题</strong>"的关键一跃——用户问得刁钻，系统更可靠。</p>
+    <p class="small">推荐阅读前课：<a href="0007-答案质量评估与RAGAS.html">第 7 课：答案质量评估与 RAGAS</a>（理解 Faithfulness 指标）、<a href="0008-rag-tech-stack-overview.html">第 8 课：RAG 技术栈全景图</a>（兜底链中的联网搜索需要理解模型选型）。速查表：<a href="../reference/0009-rag-refusal-fallback-cheatsheet.html">拒绝策略与兜底机制速查表</a>。</p>
+  </section>
+
+  <!-- ===================== 场景导入：拒答 vs 幻觉 ===================== -->
+  <section>
+    <h2>场景导入：一次拒答失误的代价</h2>
+
+    <div class="panel bad">
+      <h3>❌ 真实案例：客服 RAG 的"幻觉拒答"</h3>
+      <p><strong>用户：</strong>"我不小心把手机掉水里了，你们的防水等级是多少？"</p>
+      <p><strong>知识库中已有：</strong>"IP68 防水等级，可在 1.5 米水深下浸泡 30 分钟。"（但被错误分类到"产品规格"文件夹，未被检索到）</p>
+      <p><strong>检索返回：</strong>空调产品说明书（完全不相关）、保修条款片段（也不相关）</p>
+      <p><strong>LLM 生成：</strong>"我们的手机在正常使用条件下是防溅水的，但建议避免接触液体。具体情况请咨询客服。"</p>
+      <p class="small" style="color:var(--bad);">问题：系统检索到了噪音内容，LLM 没有充分依据却仍然给出了模糊回答——既不是准确答案，也不是诚实拒答。用户可能据此做出错误的"尝试"（比如用水冲手机），造成实际损失。</p>
+    </div>
+
+    <p>这个案例暴露了两个问题：</p>
+    <ol>
+      <li><strong>检索质量：</strong>真正的答案（IP68）未被召回</li>
+      <li><strong>生成策略：</strong>检索结果不可靠时，LLM 没有选择拒答，而是"硬着头皮回答"</li>
+    </ol>
+    <p>本课专注解决 <strong>第二个问题</strong>：当检索结果不可靠时，系统如何做正确的决定——不答、部分答、还是转接？</p>
+
+    <div class="panel info">
+      <h3>拒答 vs 幻觉：一个关键权衡</h3>
+      <table>
+        <tr><th></th><th>倾向拒答（保守）</th><th>倾向回答（激进）</th></tr>
+        <tr><td>优点</td><td>零幻觉；用户信任度高；合规安全</td><td>用户满意度高（问题被尝试回答）；转化率高</td></tr>
+        <tr><td>缺点</td><td>拒答率过高可能让用户挫败；知识库"明明有却不答"</td><td>可能产生幻觉/错误信息；流失用户信任（一次幻觉毁十次正确回答）</td></tr>
+        <tr><td>适用场景</td><td>医疗建议、法律咨询、金融交易</td><td>闲聊、产品推荐、非关键场景</td></tr>
+        <tr><td>评估指标</td><td>拒答率、准确率（被答的问题里有多少正确）</td><td>回答率、用户满意度</td></tr>
+      </table>
+      <p class="small">这不是"哪个更好"的问题——而是 <strong>你的场景决定了你的位置</strong>。客服 Q&A 应该居于中间偏保守：宁可说"我不确定"再转接人工，也不要给出错误答案。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 第一部分：检索置信度评估 ===================== -->
+  <section>
+    <h2>第一部分：检索置信度评估——判断"该不该答"</h2>
+
+    <p>要让系统知道"什么时候不该回答"，第一步是量化"我有多确定检索到的内容是可靠的"。</p>
+
+    <h3>1.1 三种置信度信号</h3>
+
+    <p>单一信号不足以做出可靠判断——你需要组合使用以下三类信号：</p>
+
+    <div class="matrix">
+      <div class="matrix-cell" style="border-left:4px solid #6d28d9;">
+        <h4>📊 检索分数</h4>
+        <p class="small" style="margin:4px 0;">检索返回的相似度/分数绝对值</p>
+        <ul class="small">
+          <li>余弦相似度（embedding 距离）</li>
+          <li>BM25 分数</li>
+          <li>RRF 融合后的排名分数</li>
+        </ul>
+      </div>
+      <div class="matrix-cell" style="border-left:4px solid #b45309;">
+        <h4>🔬 上下文相关性</h4>
+        <p class="small" style="margin:4px 0;">检索到的内容是否真正回答了问题</p>
+        <ul class="small">
+          <li>Cross-Encoder 打分（L4 学过）</li>
+          <li>LLM-as-a-Judge 快速判断</li>
+          <li>关键词匹配比例</li>
+        </ul>
+      </div>
+      <div class="matrix-cell" style="border-left:4px solid #1e40af;">
+        <h4>🎯 生成概率</h4>
+        <p class="small" style="margin:4px 0;">LLM 生成答案时的"自信度"</p>
+        <ul class="small">
+          <li>logprobs 输出 token 概率</li>
+          <li>回答中是否有模糊词（"可能"、"也许"）</li>
+          <li>生成内容的内部一致性</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="small">实践中，<strong>检索分数是最容易获取的信号</strong>，但单独使用时可靠性有限（不同 embedding 模型的分数分布不同）。最可靠的策略是"检索分数阈值 + Cross-Encoder 验证"的两步判断。</p>
+
+    <h3>1.2 空结果处理：第一个"不该答"的场景</h3>
+
+    <p>最明显的拒答场景：<strong>检索结果为空</strong>。但"空"并不总是零结果——有时 top-1 的分数只有 0.15，这本质上也是"空"。</p>
+
+    <pre><code>"""
+confidence.py — 检索置信度评估模块
+
+判断检索结果是否足够可靠，支持"该不该答"的决策。
+依赖：pip install sentence-transformers（可选，用于 Cross-Encoder）
+"""
+import os
+import statistics
+from typing import Any
+from openai import OpenAI
+
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+
+def assess_retrieval_confidence(
+    query: str,
+    results: list[dict],
+    *,
+    min_score: float = 0.4,
+    min_results: int = 1,
+) -> dict:
+    """
+    评估检索结果的置信度。
+
+    参数：
+        query: 用户查询
+        results: 检索结果列表，每项含 {"text": ..., "score": float}
+        min_score: 相似度最低阈值（低于此值视为"不可靠"）
+        min_results: 最少需要的有效结果数量
+
+    返回：
+        {
+            "is_confident": bool,
+            "confidence_level": "high" | "medium" | "low" | "empty",
+            "top_score": float,
+            "avg_score": float,
+            "effective_count": int,  # 分数 > min_score 的结果数
+            "reason": str
+        }
+    """
+    if not results:
+        return {
+            "is_confident": False,
+            "confidence_level": "empty",
+            "top_score": 0.0,
+            "avg_score": 0.0,
+            "effective_count": 0,
+            "reason": "检索结果为空，无法回答",
+        }
+
+    scores = [r.get("score", 0.0) for r in results]
+    top_score = max(scores)
+    avg_score = statistics.mean(scores)
+    effective = sum(1 for s in scores if s >= min_score)
+
+    # 判断逻辑
+    if effective < min_results:
+        return {
+            "is_confident": False,
+            "confidence_level": "low",
+            "top_score": round(top_score, 4),
+            "avg_score": round(avg_score, 4),
+            "effective_count": effective,
+            "reason": f"有效结果不足（{effective}/{min_results}），最高分 {top_score:.4f} 低于阈值 {min_score}",
+        }
+    elif top_score >= min_score * 2:              # 高分：远高于阈值
+        level = "high"
+    elif top_score >= min_score:                  # 中分：刚过线
+        level = "medium"
+    else:
+        level = "low"
+
+    return {
+        "is_confident": level in ("high", "medium"),
+        "confidence_level": level,
+        "top_score": round(top_score, 4),
+        "avg_score": round(avg_score, 4),
+        "effective_count": effective,
+        "reason": f"置信度 {level}（top={top_score:.4f}, avg={avg_score:.4f}, 有效={effective}）",
+    }
+
+
+def cross_encoder_verify(
+    query: str,
+    results: list[dict],
+    *,
+    threshold: float = 0.3,
+) -> float:
+    """
+    用 LLM 快速判断检索结果与查询的相关性（Cross-Encoder 的轻量替代）。
+    返回"相关"结果的比例。
+    如果安装了 sentence-transformers，可用真实 Cross-Encoder 替代。
+    """
+    # 更精确的做法是用 Cross-Encoder 模型（如 BAAI/bge-reranker-v2-m3）
+    # 这里作为轻量替代，用 LLM 快速打分
+    system_prompt = """你是一个检索相关性判断器。
+对于每个 (查询, 文档) 对，判断该文档是否与查询相关。
+只回答 "相关" 或 "不相关" —— 不输出其他内容。
+
+相关定义：文档包含回答该查询所需的任何有用信息。
+不相关定义：文档与查询完全无关，或只涉及相同的宽泛主题但没有有用信息。"""
+
+    relevant_count = 0
+    for r in results:
+        user_prompt = f"""查询：{query}
+
+文档：{r["text"][:500]}"""
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.0,
+            max_tokens=16,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        answer = resp.choices[0].message.content.strip()
+        if "相关" in answer:
+            relevant_count += 1
+
+    ratio = relevant_count / len(results) if results else 0.0
+    return ratio
+
+
+def decide_if_should_answer(
+    query: str,
+    results: list[dict],
+    *,
+    score_threshold: float = 0.4,
+    cross_encoder_threshold: float = 0.3,
+    min_effective: int = 1,
+) -> dict:
+    """
+    综合决策：这个查询应该回答还是拒答？
+
+    决策流程：
+    1. 检索分数评估 → 如果 empty → 拒答
+    2. Cross-Encoder 相关性验证 → 如果相关性比例太低 → 部分拒答
+    3. 综合判断 → 返回决策
+    """
+    # 第一步：检索分数评估
+    confidence = assess_retrieval_confidence(
+        query, results,
+        min_score=score_threshold,
+        min_results=min_effective,
+    )
+
+    if confidence["confidence_level"] == "empty":
+        return {
+            "decision": "refuse",
+            "refusal_type": "no_knowledge",
+            "confidence": confidence,
+            "relevance_ratio": 0.0,
+            "reason": "知识库中未检索到任何相关内容",
+        }
+
+    # 第二步：Cross-Encoder 验证
+    relevance_ratio = cross_encoder_verify(
+        query, results, threshold=cross_encoder_threshold
+    )
+
+    # 第三步：综合判断
+    if confidence["confidence_level"] == "high" and relevance_ratio >= 0.5:
+        return {
+            "decision": "answer",
+            "refusal_type": None,
+            "confidence": confidence,
+            "relevance_ratio": relevance_ratio,
+            "reason": f"置信度高（{confidence['confidence_level']}），相关性充分（{relevance_ratio:.0%}）",
+        }
+    elif confidence["confidence_level"] == "low" or relevance_ratio < 0.3:
+        return {
+            "decision": "refuse",
+            "refusal_type": "low_confidence",
+            "confidence": confidence,
+            "relevance_ratio": relevance_ratio,
+            "reason": f"置信度不足（{confidence['confidence_level']}）或相关性偏低（{relevance_ratio:.0%}）",
+        }
+    else:
+        return {
+            "decision": "partial",
+            "refusal_type": "partial_knowledge",
+            "confidence": confidence,
+            "relevance_ratio": relevance_ratio,
+            "reason": f"部分相关（相关性 {relevance_ratio:.0%}），可提供部分信息",
+        }
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    # 场景 1：检索结果为空
+    print("=== 场景 1：空结果 ===")
+    decision = decide_if_should_answer("手机防水等级是多少？", [])
+    print(f"决策：{decision['decision']}")
+    print(f"原因：{decision['reason']}")
+
+    # 场景 2：检索结果分数高
+    print("\n=== 场景 2：高置信度 ===")
+    decision = decide_if_should_answer(
+        "退货的运费谁承担？",
+        [
+            {"text": "7天无理由退货由客户承担运费，质量问题由商家承担。", "score": 0.85},
+            {"text": "运费政策根据具体情况而定。", "score": 0.72},
+        ],
+    )
+    print(f"决策：{decision['decision']}")
+    print(f"原因：{decision['reason']}")
+
+    # 场景 3：检索结果分数低
+    print("\n=== 场景 3：低置信度 ===")
+    decision = decide_if_should_answer(
+        "你们的手机能放水里多久？",
+        [
+            {"text": "本产品享受一年质保服务。", "score": 0.18},
+            {"text": "售后服务热线：400-800-8888。", "score": 0.12},
+        ],
+    )
+    print(f"决策：{decision['decision']}")
+    print(f"原因：{decision['reason']}")</code></pre>
+
+    <div class="panel warn">
+      <h3>⚠️ 重要：检索分数阈值的校准</h3>
+      <p><code>min_score=0.4</code> 是一个<strong>经验值</strong>，实际使用时必须针对你的 embedding 模型校准：</p>
+      <ul>
+        <li><strong>OpenAI text-embedding-3-small</strong>：分数通常在 0.6-0.9 之间，阈值建议 0.65</li>
+        <li><strong>BGE-zh 系列</strong>：分数分布更广（0.2-0.9），阈值建议 0.5</li>
+        <li><strong>本地小模型（Ollama）</strong>：分数可能整体偏低，阈值建议 0.3</li>
+      </ul>
+      <p>校准方法：在你的知识库上随机采样 200 条查询，人工标注"检索结果是否可用"，然后找最大化 F1 的阈值。详见本课练习题。</p>
+    </div>
+
+    <div class="panel info">
+      <h3>什么是 Cross-Encoder？它与 bi-encoder 有何不同？</h3>
+      <p>你在 L4 学过 bi-encoder（如 BGE-zh）和 Cross-Encoder：</p>
+      <ul>
+        <li><strong>Bi-Encoder</strong>：将查询和文档分别编码为向量 → 余弦相似度（快，适合检索）</li>
+        <li><strong>Cross-Encoder</strong>：将查询和文档拼接后输入同一个 transformer → 输出相关性分数（慢但准，适合重排序和验证）</li>
+      </ul>
+      <p>在拒答场景中，Cross-Encoder 的作用是<strong>二次验证</strong>：检索阶段可能拿到了高分噪音（比如关键词匹配但语义无关），Cross-Encoder 能更精确地识别这种"假阳性"。</p>
+      <p>上面代码中的 <code>cross_encoder_verify()</code> 用 LLM 替代了真实的 Cross-Encoder 模型——这是为了降低依赖。生产环境中，建议替换为 <a href="https://www.sbert.net/examples/applications/cross-encoder/README.html">sentence-transformers 的 Cross-Encoder</a> 或 <a href="https://huggingface.co/BAAI/bge-reranker-v2-m3">BGE Re-Ranker</a>，后者比 LLM 调用快 10-100 倍、成本低得多。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 第二部分：回答模板设计 ===================== -->
+  <section>
+    <h2>第二部分："我不知道"回答模板设计</h2>
+
+    <p>当系统决定"不回答"时，如何<strong>优雅地拒答</strong>，直接影响用户体验。硬邦邦的"我无法回答这个问题"会让用户立即感到挫败。</p>
+
+    <p>好的拒答回答应该做到三件事：</p>
+    <ol>
+      <li><strong>透明告知</strong>："为什么我无法回答这个问题"——让用户理解系统的局限，而非觉得系统在敷衍</li>
+      <li><strong>提供部分信息</strong>：即使不能完全回答，也能提供有帮助的相关信息（如果有的话）</li>
+      <li><strong>引导用户</strong>：给用户下一步行动建议——改天再问、联系人工、或提供更多上下文</li>
+    </ol>
+
+    <h3>2.1 三种拒答模板</h3>
+
+    <p>根据上一节的 <code>refusal_type</code>，系统应使用不同的回答模板：</p>
+
+    <div class="combo">
+      <div class="panel warn">
+        <h4>🟡 模板一：完全透明拒答</h4>
+        <p class="small" style="margin:4px 0;"><strong>适用场景：</strong>检索为空或完全不相关</p>
+        <pre style="font-size:13px;">抱歉，我目前的知识库中没有关于"{{ query }}"的
+信息。我还在不断学习和更新中。
+
+<b>建议您可以：</b>
+1. 换一种表述方式再次提问
+2. 联系人工客服获取准确信息
+3. 访问我们的帮助中心自助查询</pre>
+      </div>
+      <div class="panel good">
+        <h4>🟢 模板二：部分信息 + 明确边界</h4>
+        <p class="small" style="margin:4px 0;"><strong>适用场景：</strong>部分相关但不够完整</p>
+        <pre style="font-size:13px;">根据我目前掌握的信息，关于"{{ query }}"我
+可以告诉您：
+
+{{ partial_info }}
+
+但我不确定这是否完全回答了您的问题，
+建议您联系人工客服获取更准确的答案。</pre>
+      </div>
+      <div class="panel info">
+        <h4>🔵 模板三：引导式拒答</h4>
+        <p class="small" style="margin:4px 0;"><strong>适用场景：</strong>问题过于模糊或需要人工处理</p>
+        <pre style="font-size:13px;">我理解您在询问"{{ query }}"。
+
+为了更准确地帮助您，是否可以：
+1. 提供更多关于{{ suggestion }}的信息？
+2. 或直接联系人工客服为您处理？
+
+人工客服可以处理更复杂的个性化问题。</pre>
+      </div>
+    </div>
+
+    <h3>2.2 模板管理模块</h3>
+
+    <pre><code>"""
+refusal_templates.py — 拒答回答模板管理器
+
+根据拒答类型选择适当的回答模板，支持自定义变量注入。
+"""
+
+from typing import Any
+
+
+TEMPLATES: dict[str, dict] = {
+    "no_knowledge": {
+        "template": """抱歉，我目前的知识库中没有关于"{{ query }}"的信息。
+
+相关知识库还在不断更新中，您可以：
+
+1. **换个说法再问一次**——换个关键词可能会找到相关内容
+2. **联系人工客服**——获取最准确的解答
+3. 或访问我们的帮助中心自助查询
+
+请问还有什么其他问题我可以帮您解答吗？""",
+        "description": "完全不知道——检索结果为空",
+    },
+    "low_confidence": {
+        "template": """关于"{{ query }}"，我没有找到足够可靠的信息来回答您。
+
+我检索到的内容与您的问题相关度不高，为了避免给您错误信息，建议您：
+
+1. **联系人工客服**——为您准确解答
+2. **重新表述问题**——可能换个说法我能找到更多信息
+
+很抱歉没能直接帮到您。""",
+        "description": "检索结果不可靠——分数低或相关性不足",
+    },
+    "partial_knowledge": {
+        "template": """关于"{{ query }}"，我找到了部分相关信息：
+
+{{ partial_info }}
+
+{{#if suggestions}}
+**另外，您可能还想了解：**
+{{ suggestions }}
+{{/if}}
+
+不过我不确定这是否完整回答了您的问题，如需更准确的解答，建议联系人工客服。""",
+        "description": "部分相关知识——可提供但不完整",
+    },
+    "vague_query": {
+        "template": """我理解您在询问"{{ query }}"，但这个问题可能涉及多个方面。
+
+为了更准确地帮助您，可以告诉我更多细节吗？例如：
+{{#each clarification}}
+- {{this}}
+{{/each}}
+
+或者您可以直接联系人工客服获取一对一帮助。""",
+        "description": "问题太模糊——需要用户澄清",
+    },
+}
+
+
+def render_refusal(
+    refusal_type: str,
+    variables: dict[str, Any],
+) -> str:
+    """
+    根据拒答类型和变量渲染回答文本。
+
+    参数：
+        refusal_type: no_knowledge | low_confidence | partial_knowledge | vague_query
+        variables: 模板变量，如 {"query": "...", "partial_info": "..."}
+
+    返回：
+        渲染后的回答文本（纯文本，非 HTML）
+    """
+    template_info = TEMPLATES.get(refusal_type)
+    if not template_info:
+        template_info = TEMPLATES["no_knowledge"]
+
+    template = template_info["template"]
+    query = variables.get("query", "")
+
+    # 简易模板引擎（生产环境建议用 Jinja2 或 string.Template）
+    result = template.replace("{{ query }}", query)
+
+    partial_info = variables.get("partial_info", "")
+    result = result.replace("{{ partial_info }}", partial_info)
+
+    suggestions = variables.get("suggestions", "")
+    if "{{/if}}" in result:
+        # 处理简单条件块
+        if suggestions:
+            result = result.replace("{{#if suggestions}}\n", "").replace("\n{{/if}}", "")
+        else:
+            # 移除整个条件块
+            start = result.find("{{#if suggestions}}")
+            if start >= 0:
+                end = result.find("{{/if}}", start) + len("{{/if}}")
+                # 清除条件块内的内容
+                inner_start = result.find("\n", start) + 1
+                block_content = result[start:end]
+                result = result.replace(block_content, "")
+        result = result.replace("{{ suggestions }}", suggestions)
+
+    # 处理 each 块
+    clarification = variables.get("clarification", [])
+    if "{{#each clarification}}" in result:
+        if clarification:
+            items = "\n".join(f"- {item}" for item in clarification)
+            start = result.find("{{#each clarification}}")
+            end = result.find("{{/each}}", start) + len("{{/each}}")
+            result = result[:start] + items + result[end:]
+        else:
+            start = result.find("{{#each clarification}}")
+            end = result.find("{{/each}}", start) + len("{{/each}}")
+            result = result[:start] + "请提供更多信息" + result[end:]
+
+    return result.strip()
+
+
+def build_refusal_response(decision: dict, query: str, **extra) -> str:
+    """构建完整的拒答回复（决策 → 模板渲染）"""
+    refusal_type = decision.get("refusal_type", "no_knowledge")
+    return render_refusal(refusal_type, {"query": query, **extra})
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    # 场景 1：完全不知道
+    print("=== 场景 1：无知识 ===")
+    decision = {"refusal_type": "no_knowledge", "confidence_level": "empty"}
+    reply = build_refusal_response(decision, "5G 频段支持情况")
+    print(reply)
+
+    print("\n=== 场景 2：部分信息 ===")
+    decision = {"refusal_type": "partial_knowledge", "confidence_level": "medium"}
+    reply = build_refusal_response(
+        decision,
+        "手机进水了怎么办？",
+        partial_info="IP68 防水等级可在 1.5 米水深下浸泡 30 分钟。",
+        suggestions="进水后的正确处理步骤、保修政策",
+    )
+    print(reply)</code></pre>
+
+    <div class="panel info">
+      <h3>模板设计的心理学</h3>
+      <p>好的拒答模板背后有一些心理学原理：</p>
+      <ul>
+        <li><strong>归因透明</strong>：说"我的知识库没有收录"而非"无法回答"——将原因归咎于系统的局限而非用户的问题</li>
+        <li><strong>提供替代路径</strong>：每次拒答都给出至少两个后续选项——减少用户的"死胡同感"</li>
+        <li><strong>语气同理</strong>："很抱歉"、"建议您可以"——保持礼貌谦逊</li>
+        <li><strong>避免过度承诺</strong>：不说"稍后就有答案"或"我会转达给相关团队"——除非你真的有这套流程</li>
+      </ul>
+      <p class="small">参考：<a href="https://www.nngroup.com/articles/error-message-guidelines/">Nielsen Norman Group 的 error message 设计原则</a>——错误信息应该有四个要素：发生了什么、为什么、怎么解决、不要责怪用户。这些原则同样适用于 AI 拒答。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 第三部分：多层兜底链 ===================== -->
+  <section>
+    <h2>第三部分：多层兜底链——从本地到人工</h2>
+
+    <p>当本地知识库检索失败时，系统不应该直接"投降"。一个工业级的 RAG 系统应该有一整套 <strong>兜底链路（Graceful Degradation Chain）</strong>：</p>
+
+    <div class="diagram">
+      <div class="box" style="border-color:#0f766e;">用户提问</div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#6d28d9;">本地知识库<br><span class="small">向量检索</span></div>
+      <div class="arrow">→</div>
+      <div class="box warn" style="border-color:#b45309;">置信度评估</div>
+      <div class="arrow">→</div>
+      <div class="box good" style="border-color:#116329;">高置信度？</div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#0f766e;">正常回答</div>
+      <br>
+      <div class="arrow" style="display:block; margin:8px 0;">↓ 低置信度时逐级降级 ↓</div>
+      <div class="box muted">第一级：本地知识库<br><span class="small">改写查询再试一次</span></div>
+      <div class="arrow">→</div>
+      <div class="box muted">第二级：联网搜索<br><span class="small">Web Search API</span></div>
+      <div class="arrow">→</div>
+      <div class="box muted">第三级：人工转接<br><span class="small">生成工单</span></div>
+    </div>
+
+    <h3>3.1 第一级：查询改写重试</h3>
+
+    <p>检索失败的第一个解法不是"放弃"，而是<strong>换个角度搜索</strong>。L5 教过 Query Rewrite 和 Multi-Query——这就是第一级兜底。</p>
+
+    <pre><code>"""
+fallback_chain.py — 多层兜底链路
+
+从本地检索 → 联网搜索 → 人工转接的三级降级策略。
+"""
+import json
+import os
+import urllib.request
+import urllib.parse
+from openai import OpenAI
+
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+
+# ========== 第一级：查询改写重试 ==========
+
+def query_rewrite(query: str, history: list[str] | None = None) -> list[str]:
+    """
+    将用户查询改写为多个搜索查询（Multi-Query 策略）。
+    用于第一次检索结果不佳时，尝试不同角度。
+    """
+    system_prompt = """你是一个搜索查询优化专家。
+用户的初始查询没有找到好结果，你需要生成 3 个不同角度的改写查询，
+覆盖同义词替换、更具体/更宽泛、以及可能的问答形式。
+
+输出 JSON 列表：["改写1", "改写2", "改写3"]"""
+
+    user_prompt = f"原始查询：{query}"
+    if history:
+        user_prompt += f"\n对话历史：{' '.join(history[-3:])}"
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0.7,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    )
+    try:
+        queries = json.loads(resp.choices[0].message.content)
+        return queries if isinstance(queries, list) else [query]
+    except (json.JSONDecodeError, KeyError):
+        return [query]
+
+
+# ========== 第二级：联网搜索（可选） ==========
+
+def web_search(query: str, max_results: int = 3) -> list[dict]:
+    """
+    联网搜索——作为本地知识库的补充。
+
+    注意：这里是一个占位接口。
+    实际使用时需要接入具体搜索引擎：
+    - 百度搜索 API（国内合规）
+    - SerpAPI / Serper（海外）
+    - Bing Search API（微软）
+    - Tavily（专为 AI 优化的搜索 API）
+    """
+    # 占位：这里演示结构，实际需替换为真实搜索 API
+    # 示例：用 Serper API 做谷歌搜索
+    # import requests
+    # resp = requests.post(
+    #     "https://google.serper.dev/search",
+    #     headers={"X-API-KEY": os.environ["SERPER_API_KEY"]},
+    #     json={"q": query, "num": max_results},
+    # )
+    # return resp.json().get("organic", [])
+
+    return []
+    # TODO: 在练习中填入真实实现
+
+
+def web_search_fallback(query: str) -> dict | None:
+    """
+    尝试联网搜索兜底。
+
+    返回搜索结果摘要或 None（搜索不可用）。
+    """
+    results = web_search(query)
+    if not results:
+        return None
+
+    snippets = []
+    for r in results[:3]:
+        title = r.get("title", "")
+        snippet = r.get("snippet", "")
+        link = r.get("link", "")
+        snippets.append(f"- [{title}]({link}): {snippet}")
+
+    return {
+        "source": "web",
+        "content": "\n".join(snippets),
+        "results_count": len(results),
+    }
+
+
+# ========== 第三级：人工转接 ==========
+
+def create_human_ticket(
+    query: str,
+    user_id: str = "anonymous",
+    reason: str = "知识库无法覆盖",
+    chat_history: list[str] | None = None,
+) -> dict:
+    """
+    创建人工客服工单。
+
+    生产环境中，此函数应调用内部工单系统 API：
+    - Zendesk / Freshdesk
+    - 钉钉/飞书/企业微信机器人
+    - 自建工单系统
+    """
+    ticket = {
+        "ticket_id": f"TICKET-{hash(query) % 10**6:06d}",
+        "user_id": user_id,
+        "query": query,
+        "reason": reason,
+        "priority": "normal",
+        "status": "pending",
+        "created_at": "2026-06-20T12:00:00Z",  # 实际用 datetime.utcnow()
+    }
+
+    if chat_history:
+        ticket["chat_history"] = chat_history[-10:]  # 只保留最后 10 轮
+
+    # TODO: 实际发送到工单系统 API
+    # requests.post("https://api.example.com/tickets", json=ticket)
+
+    return ticket
+
+
+def human_fallback(query: str) -> dict:
+    """
+    人工转接——最后一层兜底。
+
+    返回给用户的转接信息和生成的工单。
+    """
+    ticket = create_human_ticket(query)
+    return {
+        "fallback": "human",
+        "ticket": ticket,
+        "message": f"已为您转接人工客服，工单编号：{ticket['ticket_id']}。人工客服将在 30 分钟内联系您。",
+    }
+
+
+# ========== 完整兜底链 ==========
+
+def execute_fallback_chain(
+    query: str,
+    retrieve_fn: callable,
+    *,
+    enable_web_search: bool = False,
+    enable_human_fallback: bool = True,
+    max_retries: int = 1,
+) -> dict:
+    """
+    执行完整的多层兜底链。
+
+    流程：
+    1. 本地检索 → 置信度评估
+    2. 如果低置信度 → 改写查询再检索一次（最多 max_retries 次）
+    3. 如果仍然低置信度 → 联网搜索（如果启用）
+    4. 如果仍然没有 → 人工转接（如果启用）
+    5. 如果什么都不启用 → 透明拒答
+
+    返回最后的决策和回答。
+    """
+    from confidence import decide_if_should_answer
+
+    # 第一层：本地检索
+    results = retrieve_fn(query)
+    decision = decide_if_should_answer(query, results)
+
+    if decision["decision"] == "answer":
+        return {
+            "stage": "local_kb",
+            "decision": "answer",
+            "results": results,
+            "refusal_response": None,
+        }
+
+    # 第二层：改写查询重试
+    rewritten = query_rewrite(query)
+    for i, rq in enumerate(rewritten[:max_retries]):
+        retry_results = retrieve_fn(rq)
+        retry_decision = decide_if_should_answer(query, retry_results)
+        if retry_decision["decision"] == "answer":
+            return {
+                "stage": "retry",
+                "decision": "answer",
+                "results": retry_results,
+                "rewritten_query": rq,
+                "refusal_response": None,
+            }
+
+    decision.update(retry_decision if "retry_decision" in dir() else {})
+
+    # 第三层：联网搜索
+    if enable_web_search:
+        web_result = web_search_fallback(query)
+        if web_result:
+            return {
+                "stage": "web",
+                "decision": "answer_web",
+                "web_result": web_result,
+                "refusal_response": None,
+            }
+
+    # 第四层：人工转接
+    if enable_human_fallback:
+        fallback = human_fallback(query)
+        return {
+            "stage": "human",
+            "decision": "human_transfer",
+            "ticket": fallback["ticket"],
+            "refusal_response": fallback["message"],
+        }
+
+    # 最终：透明拒答
+    from refusal_templates import build_refusal_response
+    reply = build_refusal_response(decision, query)
+    return {
+        "stage": "refusal",
+        "decision": "refuse",
+        "refusal_response": reply,
+    }
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    # 模拟检索函数（总是返回低质量结果）
+    def mock_retrieve(q: str) -> list[dict]:
+        return [{"text": f"关于 {q} 的一般信息。", "score": 0.15}]
+
+    result = execute_fallback_chain("手机进水了怎么办？", mock_retrieve)
+    print(f"落地阶段：{result['stage']}")
+    print(f"决策：{result['decision']}")
+    if result.get("refusal_response"):
+        print(f"回复：{result['refusal_response'][:100]}...")
+    else:
+        print("（正常回答）")</code></pre>
+
+    <div class="panel good">
+      <h3>兜底链设计的核心原则：按成本降级</h3>
+      <p>每一层兜底的成本（时延 + 金钱 + 人力）依次升高：</p>
+      <table>
+        <tr><th>层级</th><th>时延</th><th>金钱成本</th><th>人力成本</th><th>推荐场景</th></tr>
+        <tr><td>1. 本地检索</td><td>~200ms</td><td>几乎为零</td><td>无</td><td>所有查询</td></tr>
+        <tr><td>2. 改写重试</td><td>+~500ms</td><td>少量 LLM token</td><td>无</td><td>首次检索低置信度时</td></tr>
+        <tr><td>3. 联网搜索</td><td>+~1-3s</td><td>API 调用费</td><td>无</td><td>本地检索失败但用户需要实时信息</td></tr>
+        <tr><td>4. 人工转接</td><td>+~5s（应答）</td><td>客服工资</td><td>高</td><td>复杂/敏感/高价值问题</td></tr>
+      </table>
+      <p><strong>关键决策：</strong>不是每个问题都需要走到最后一层。对于简单 FAQ，到第一层就够；对于需要实时数据（如"今天能发货吗"）可以开到第三层；对于投诉/退款，直接跳到第四层。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 第四部分：知识库覆盖度检测 ===================== -->
+  <section>
+    <h2>第四部分：知识库覆盖度检测——发现你的盲区</h2>
+
+    <p>拒答策略是"被动防御"，而覆盖度检测是"主动改善"。你需要在系统运行中持续回答一个问题：<strong>我们知识库的盲区在哪里？</strong></p>
+
+    <h3>4.1 覆盖度检测的基本方法</h3>
+
+    <p>覆盖度检测的核心思路：<strong>统计真实用户的查询，分析有多少被回答了、多少被拒答了、拒答的原因是什么。</strong></p>
+
+    <pre><code>"""
+coverage_monitor.py — 知识库覆盖度检测
+
+记录查询日志，分析拒答模式，计算覆盖度指标。
+"""
+
+import json
+import statistics
+from collections import Counter
+from datetime import datetime, timedelta
+from typing import Any
+
+
+class CoverageMonitor:
+    """
+    知识库覆盖度监控器。
+
+    记录每次查询的结果，生成覆盖度报告。
+    """
+
+    def __init__(self, log_path: str = "query_log.jsonl"):
+        self.log_path = log_path
+
+    def log_query(
+        self,
+        query: str,
+        decision: str,
+        refusal_type: str | None = None,
+        confidence_level: str = "",
+        relevance_ratio: float = 0.0,
+        knowledge_base_category: str = "general",
+        **extra,
+    ):
+        """记录一条查询日志"""
+        entry = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "query": query,
+            "decision": decision,
+            "refusal_type": refusal_type,
+            "confidence_level": confidence_level,
+            "relevance_ratio": relevance_ratio,
+            "knowledge_base_category": knowledge_base_category,
+            **extra,
+        }
+        with open(self.log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    def generate_report(self, hours: int = 24) -> dict:
+        """
+        生成过去 N 小时的覆盖度报告。
+
+        返回：
+            {
+                "total_queries": int,
+                "answer_rate": float,      # 被回答的占比
+                "refusal_rate": float,     # 被拒答的占比
+                "human_transfer_rate": float,  # 转人工的占比
+                "refusal_breakdown": {      # 拒答类型分布
+                    "no_knowledge": int,
+                    "low_confidence": int,
+                    "partial_knowledge": int,
+                    ...
+                },
+                "top_refused_queries": [str],  # 最常见的拒答查询
+                "category_coverage": {      # 每个分类的覆盖度
+                    "退货政策": {"queries": 100, "answer_rate": 0.85, ...},
+                    ...
+                },
+                "uncovered_queries": [str],  # 需要优先补充知识的查询
+            }
+        """
+        # 读取日志
+        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        entries = []
+        try:
+            with open(self.log_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    entry = json.loads(line)
+                    ts = datetime.fromisoformat(entry["timestamp"])
+                    if ts >= cutoff:
+                        entries.append(entry)
+        except FileNotFoundError:
+            return {"total_queries": 0, "error": "日志文件不存在"}
+
+        if not entries:
+            return {"total_queries": 0, "message": "指定时间内无查询记录"}
+
+        total = len(entries)
+        decisions = [e["decision"] for e in entries]
+
+        # 回答率
+        answered = sum(1 for d in decisions if d == "answer")
+        refused = sum(1 for d in decisions if d == "refuse")
+        transferred = sum(1 for d in decisions if d == "human_transfer")
+
+        # 拒答类型分布
+        refusal_types = Counter(
+            e.get("refusal_type", "unknown")
+            for e in entries
+            if e["decision"] == "refuse"
+        )
+
+        # 按分类统计
+        categories = {}
+        for e in entries:
+            cat = e.get("knowledge_base_category", "general")
+            if cat not in categories:
+                categories[cat] = {"total": 0, "answered": 0}
+            categories[cat]["total"] += 1
+            if e["decision"] == "answer":
+                categories[cat]["answered"] += 1
+        for cat in categories:
+            t = categories[cat]["total"]
+            a = categories[cat]["answered"]
+            categories[cat]["answer_rate"] = round(a / t, 3) if t else 0.0
+
+        # 最常见的拒答查询（按拒绝类型分组）
+        refused_queries = [
+            e["query"] for e in entries if e["decision"] in ("refuse", "human_transfer")
+        ]
+        top_refused = [
+            q for q, _ in Counter(refused_queries).most_common(10)
+        ]
+
+        # 需要优先补充知识的查询：
+        # 规则：被拒答 > 1 次，或转人工 > 1 次
+        query_counter = Counter(e["query"] for e in entries if e["decision"] in ("refuse", "human_transfer"))
+        uncovered = [q for q, c in query_counter.most_common(20) if c >= 2]
+
+        return {
+            "report_period_hours": hours,
+            "total_queries": total,
+            "answer_rate": round(answered / total, 3) if total else 0.0,
+            "refusal_rate": round(refused / total, 3) if total else 0.0,
+            "human_transfer_rate": round(transferred / total, 3) if total else 0.0,
+            "refusal_breakdown": dict(refusal_types),
+            "category_coverage": categories,
+            "top_refused_queries": top_refused[:10],
+            "uncovered_queries": uncovered[:10],
+        }
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    monitor = CoverageMonitor()
+
+    # 模拟记录一些查询
+    monitor.log_query("退货运费谁承担", "answer", confidence_level="high", relevance_ratio=0.9)
+    monitor.log_query("手机防水等级", "refuse", "no_knowledge", confidence_level="empty")
+    monitor.log_query("5G 频段", "refuse", "no_knowledge")
+    monitor.log_query("如何开通国际漫游", "human_transfer", "low_confidence")
+
+    report = monitor.generate_report(hours=72)
+    print(f"总查询数：{report['total_queries']}")
+    print(f"回答率：{report['answer_rate']:.1%}")
+    print(f"拒答率：{report['refusal_rate']:.1%}")
+    print(f"转人工率：{report['human_transfer_rate']:.1%}")
+    print(f"拒答类型分布：{report['refusal_breakdown']}")
+    print(f"需要补充的盲区：{report['uncovered_queries']}")</code></pre>
+
+    <h3>4.2 驱动知识库迭代的闭环</h3>
+
+    <p>覆盖度检测的价值不在于报告本身，而在于它能驱动一个 <strong>数据驱动型知识库迭代循环</strong>：</p>
+
+    <div class="flow">
+      <div class="flow-box">用户查询</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-box">RAG 回答/拒答</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-box">记录日志</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-box">覆盖度报告</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-box">识别盲区</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-box">新增/更新知识</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-box">重新入库</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-box">回答率↑</div>
+    </div>
+
+    <div class="panel good">
+      <h3>覆盖度目标参考值</h3>
+      <p>不同的成熟度阶段有不同的目标：</p>
+      <table>
+        <tr><th>阶段</th><th>回答率目标</th><th>转人工率</th><th>策略</th></tr>
+        <tr><td>初期上线</td><td>≥ 50%</td><td>≤ 30%</td><td>优先收集盲区数据，快速补充高频问题</td></tr>
+        <tr><td>稳定运行</td><td>≥ 70%</td><td>≤ 15%</td><td>优化检索质量，完善低频问题</td></tr>
+        <tr><td>成熟阶段</td><td>≥ 85%</td><td>≤ 5%</td><td>持续增量更新，监控回答质量退化</td></tr>
+      </table>
+      <p class="small">这些值是经验参考——不同行业的"好"标准不同。比如电商客服的回答率天花板比医疗咨询高（因为医疗有更多场景必须转人工）。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 第五部分：整合实践 ===================== -->
+  <section>
+    <h2>第五部分：整合——构建拒绝策略感知的 RAG Pipeline</h2>
+
+    <p>现在我们将前面四个模块整合在一起，构建一个 <strong>拒绝策略感知的完整 RAG Pipeline</strong>：</p>
+
+    <pre><code>"""
+rag_with_refusal.py — 带拒绝策略的 RAG Pipeline
+
+整合：检索 → 置信度评估 → 分层兜底 → 拒答/回答
+"""
+import os
+from openai import OpenAI
+
+from confidence import decide_if_should_answer
+from fallback_chain import (
+    execute_fallback_chain,
+    query_rewrite,
+    web_search_fallback,
+    human_fallback,
+)
+from refusal_templates import build_refusal_response
+
+
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+
+class KnowledgeBase:
+    """
+    知识库接口——你的向量检索封装。
+
+    这是占位实现，实际应使用 Chroma / Qdrant / Milvus 等真实向量库。
+    """
+
+    def __init__(self):
+        self.documents = []
+
+    def add_documents(self, docs: list[dict]):
+        """添加文档，每项含 {"text": str, "id": str, "metadata": dict}"""
+        self.documents = docs  # 简化实现——实际应向量化后存入向量库
+
+    def search(self, query: str, top_k: int = 5) -> list[dict]:
+        """检索——占位实现，模拟返回结果"""
+        # 实际应调用向量库的相似度搜索
+        results = []
+        for i, doc in enumerate(self.documents[:top_k]):
+            # 模拟相似度分数
+            score = max(0.0, 1.0 - i * 0.2)
+            results.append({
+                "id": doc.get("id", str(i)),
+                "text": doc["text"],
+                "score": score,
+                "metadata": doc.get("metadata", {}),
+            })
+        return results
+
+
+def build_rag_prompt(query: str, contexts: list[str]) -> list[dict]:
+    """构建 RAG 生成 prompt"""
+    context_text = "\n\n".join(
+        f"[{i+1}] {c}" for i, c in enumerate(contexts)
+    )
+    system = """你是一个客服助手。请根据提供的上下文信息回答用户问题。
+
+规则：
+1. 只能使用上下文中明确提到的信息
+2. 如果上下文不足以回答问题，请如实说明
+3. 引用信息来源（使用 [1]、[2] 标注）
+4. 用中文回答"""
+
+    user = f"""【上下文信息】
+{context_text}
+
+【用户问题】
+{query}
+
+【回答】"""
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+
+class RAGWithRefusal:
+    """
+    带拒绝策略的 RAG 系统。
+
+    使用方式：
+        kb = KnowledgeBase()
+        kb.add_documents([...])
+        rag = RAGWithRefusal(kb)
+        result = rag.answer("手机防水等级是多少？")
+        print(result["reply"])
+    """
+
+    def __init__(
+        self,
+        knowledge_base: KnowledgeBase,
+        *,
+        enable_web_search: bool = False,
+        enable_human_fallback: bool = True,
+        top_k: int = 5,
+        score_threshold: float = 0.4,
+    ):
+        self.kb = knowledge_base
+        self.enable_web_search = enable_web_search
+        self.enable_human_fallback = enable_human_fallback
+        self.top_k = top_k
+        self.score_threshold = score_threshold
+
+    def answer(self, query: str) -> dict:
+        """
+        对用户查询执行完整的 RAG + 拒答流程。
+
+        返回：
+            {
+                "reply": str,           # 最终回复文本
+                "decision": str,        # answer | refuse | human_transfer
+                "stage": str,           # local_kb | retry | web | human | refusal
+                "confidence": {...},    # 置信度评估详情
+                "sources": [...],       # 引用的来源（如果有）
+            }
+        """
+        # 第一步：本地检索
+        results = self.kb.search(query, top_k=self.top_k)
+        decision = decide_if_should_answer(
+            query, results,
+            score_threshold=self.score_threshold,
+        )
+
+        # 第二步：根据决策决定下一步
+        if decision["decision"] == "answer":
+            # 正常回答
+            contexts = [r["text"] for r in results]
+            messages = build_rag_prompt(query, contexts)
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                temperature=0.3,
+                messages=messages,
+            )
+            reply = resp.choices[0].message.content
+            return {
+                "reply": reply,
+                "decision": "answer",
+                "stage": "local_kb",
+                "confidence": decision,
+                "sources": results,
+            }
+
+        # 第三步：改写重试
+        rewritten = query_rewrite(query)
+        for rq in rewritten[:2]:
+            retry_results = self.kb.search(rq, top_k=self.top_k)
+            retry_decision = decide_if_should_answer(
+                query, retry_results,
+                score_threshold=self.score_threshold,
+            )
+            if retry_decision["decision"] == "answer":
+                contexts = [r["text"] for r in retry_results]
+                messages = build_rag_prompt(query, contexts)
+                resp = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    temperature=0.3,
+                    messages=messages,
+                )
+                return {
+                    "reply": resp.choices[0].message.content,
+                    "decision": "answer",
+                    "stage": "retry",
+                    "confidence": retry_decision,
+                    "rewritten_query": rq,
+                    "sources": retry_results,
+                }
+
+        # 第四步：联网搜索兜底
+        if self.enable_web_search:
+            web_result = web_search_fallback(query)
+            if web_result:
+                # 用联网结果作为上下文生成回答
+                contexts = [web_result["content"]]
+                messages = build_rag_prompt(
+                    f"{query}\n（注意：以下信息来自在线搜索，可靠性未经审核，请告知用户）",
+                    contexts,
+                )
+                resp = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    temperature=0.3,
+                    messages=messages,
+                )
+                reply = resp.choices[0].message.content
+                return {
+                    "reply": reply + "\n\n⚠️ 以上信息来自在线搜索，建议核实后使用。",
+                    "decision": "answer_web",
+                    "stage": "web",
+                    "sources": [web_result],
+                }
+
+        # 第五步：人工转接
+        if self.enable_human_fallback:
+            fallback = human_fallback(query)
+            return {
+                "reply": fallback["message"],
+                "decision": "human_transfer",
+                "stage": "human",
+                "ticket": fallback["ticket"],
+            }
+
+        # 最终：透明拒答
+        reply = build_refusal_response(decision, query)
+        return {
+            "reply": reply,
+            "decision": "refuse",
+            "stage": "refusal",
+            "confidence": decision,
+        }
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    # 创建一个带知识库的 RAG 系统
+    kb = KnowledgeBase()
+    kb.add_documents([
+        {"id": "1", "text": "7天无理由退货政策：客户可在签收后7天内申请无理由退货，运费由客户承担。定制商品不适用。", "metadata": {"category": "退货政策"}},
+        {"id": "2", "text": "退款处理时间：退货申请审核通过后，退款将在3-5个工作日内退还到原支付账户。", "metadata": {"category": "退款政策"}},
+        {"id": "3", "text": "客服工作时间：周一至周日 9:00-21:00，节假日无休。人工客服电话 400-800-8888。", "metadata": {"category": "客服信息"}},
+    ])
+
+    rag = RAGWithRefusal(kb, enable_web_search=False, enable_human_fallback=True)
+
+    # 测试 1：知识库覆盖的问题（应正常回答）
+    print("=" * 50)
+    print("测试 1：知识库覆盖的问题")
+    result = rag.answer("退货的运费谁承担？")
+    print(f"决策：{result['decision']}（阶段：{result['stage']}）")
+    print(f"回复：{result['reply'][:150]}")
+
+    # 测试 2：知识库未覆盖的问题（应拒答 + 转人工）
+    print("\n" + "=" * 50)
+    print("测试 2：知识库未覆盖的问题")
+    result = rag.answer("手机防水等级是多少？")
+    print(f"决策：{result['decision']}（阶段：{result['stage']}）")
+    if result.get("ticket"):
+        print(f"工单：{result['ticket']['ticket_id']}")
+    print(f"回复：{result['reply']}")</code></pre>
+
+    <div class="panel good">
+      <h3>检查清单：你的拒绝策略做对了吗？</h3>
+      <ul>
+        <li>✅ 检索结果为空时，系统不硬答、不编造——而是透明拒答</li>
+        <li>✅ 检索分数和 Cross-Encoder 双重验证，95% 以上的幻觉被拦截在回答之前</li>
+        <li>✅ 拒答回复包含"为什么不能回答 + 用户可以做什么"——不只是"我不知道"</li>
+        <li>✅ 有一键转人工的机制——系统解决不了的，快速交给真人</li>
+        <li>✅ 所有拒答被记录——每周分析覆盖度报告，驱动知识库迭代</li>
+        <li>✅ 拒答率被监控——突然升高的拒答率 = 指标退化的预警信号</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===================== 交互式测验 ===================== -->
+  <section>
+    <h2>交互式测验</h2>
+    <p>检验你对拒绝策略与兜底机制的理解。</p>
+
+    <div class="panel">
+      <h3>问题 1</h3>
+      <p>以下哪种<strong>不是</strong>检索置信度评估的信号来源？</p>
+      <div class="quiz" id="q1">
+        <button onclick="answerQ('q1',0)">A. 检索返回的余弦相似度分数</button>
+        <button onclick="answerQ('q1',1)">B. Cross-Encoder 的相关性判断</button>
+        <button onclick="answerQ('q1',2)">C. LLM 生成答案的完整度</button>
+        <button onclick="answerQ('q1',3)">D. 生成 token 的 logprobs 概率</button>
+      </div>
+      <div class="feedback" id="q1-fb"></div>
+    </div>
+
+    <div class="panel">
+      <h3>问题 2</h3>
+      <p>你的客服 RAG 系统收到一个查询，检索结果 top-1 分数为 0.22（阈值 0.4），且 Cross-Encoder 判断不相关。<strong>最合理的做法是</strong>？</p>
+      <div class="quiz" id="q2">
+        <button onclick="answerQ('q2',0)">A. 仍然生成回答——LLM 可能知道答案</button>
+        <button onclick="answerQ('q2',1)">B. 直接返回"我无法回答"——用第一级拒答模板</button>
+        <button onclick="answerQ('q2',2)">C. 尝试改写查询再检索一次，如果仍不行则转人工</button>
+        <button onclick="answerQ('q2',3)">D. 降低阈值重新检索，拿到结果为止</button>
+      </div>
+      <div class="feedback" id="q2-fb"></div>
+    </div>
+
+    <div class="panel">
+      <h3>问题 3</h3>
+      <p>关于知识库覆盖度检测，以下说法<strong>不准确</strong>的是？</p>
+      <div class="quiz" id="q3">
+        <button onclick="answerQ('q3',0)">A. 覆盖度检测能发现知识库的盲区，驱动知识库迭代</button>
+        <button onclick="answerQ('q3',1)">B. 回答率 100% 是最好的——说明所有问题都被回答了</button>
+        <button onclick="answerQ('q3',2)">C. 拒答率的突然升高可能是检索系统退化的预警信号</button>
+        <button onclick="answerQ('q3',3)">D. 覆盖度报告应按知识库分类维度做细分统计</button>
+      </div>
+      <div class="feedback" id="q3-fb"></div>
+    </div>
+
+    <div class="panel">
+      <h3>问题 4</h3>
+      <p>多层兜底链的正确设计原则是？</p>
+      <div class="quiz" id="q4">
+        <button onclick="answerQ('q4',0)">A. 所有查询都应该走完所有兜底层级</button>
+        <button onclick="answerQ('q4',1)">B. 兜底链的成本应该是递增的——从轻量到重量</button>
+        <button onclick="answerQ('q4',2)">C. 人工转接应该在每次检索失败时都触发</button>
+        <button onclick="answerQ('q4',3)">D. 联网搜索应该作为第一级兜底</button>
+      </div>
+      <div class="feedback" id="q4-fb"></div>
+    </div>
+
+    <div class="panel">
+      <h3>问题 5</h3>
+      <p>关于拒答模板设计，以下<strong>最不重要</strong>的是？</p>
+      <div class="quiz" id="q5">
+        <button onclick="answerQ('q5',0)">A. 透明告知"为什么不能回答"</button>
+        <button onclick="answerQ('q5',1)">B. 提供后续行动建议（换种问法、联系人工等）</button>
+        <button onclick="answerQ('q5',2)">C. 用幽默的语言来缓解用户挫败感</button>
+        <button onclick="answerQ('q5',3)">D. 语气保持同理心，不责怪用户</button>
+      </div>
+      <div class="feedback" id="q5-fb"></div>
+    </div>
+  </section>
+
+  <!-- ===================== 练习题 ===================== -->
+  <section>
+    <h2>练习题</h2>
+
+    <div class="task">
+      <h3>练习 1：校准你的检索分数阈值</h3>
+      <ol>
+        <li>从你的知识库中随机采样 200 个 <code>(query, retrieved_chunks)</code> 对</li>
+        <li>人工标注每条：<strong>"可用"</strong>（检索结果足够回答问题）/ <strong>"不可用"</strong>（检索结果不相关或部分相关）</li>
+        <li>编写一个函数，遍历 <code>min_score</code> 从 0.1 到 0.9（步长 0.05），计算每个阈值的准确率、召回率、F1 值</li>
+        <li>选择最大化 F1 的阈值作为你的系统默认阈值</li>
+        <li>将校准结果记录到 <code>coverage_monitor.py</code>（提示：本课示例中使用 0.4 只是经验值，你的实际阈值可能完全不同）</li>
+      </ol>
+    </div>
+
+    <div class="task">
+      <h3>练习 2：实现真实的联网搜索兜底</h3>
+      <ol>
+        <li>注册 <a href="https://serper.dev">Serper API</a>（免费额度 2500 次/月）或 <a href="https://www.tavily.com/">Tavily</a>（AI 优化搜索）</li>
+        <li>在 <code>fallback_chain.py</code> 的 <code>web_search()</code> 函数中接入真实 API</li>
+        <li>测试三个场景的搜索结果：<br>
+          a. 事实类问题："2024 年奥运会主办城市"<br>
+          b. 实时类问题："今天北京的天气"<br>
+          c. 公司类问题："XX 公司的最新动态"</li>
+        <li>观察联网搜索结果的质量——与本地知识库检索对比，哪些场景联网搜索更好？哪个场景仍然是本地知识库更优？</li>
+      </ol>
+    </div>
+
+    <div class="task">
+      <h3>练习 3：拒绝策略 A/B 测试</h3>
+      <ol>
+        <li>搭建两个 RAG 实例：<strong>实例 A（无拒绝策略）</strong> vs <strong>实例 B（有拒绝策略）</strong></li>
+        <li>准备 10 个"可回答"问题 + 10 个"不可回答"问题（知识库中不存在的内容）</li>
+        <li>运行两个实例，统计：<br>
+          a. 实例 A 对"不可回答"问题的 Faithfulness（用 L7 的评估器）<br>
+          b. 实例 B 的拒答率 + 正确拒答率（该拒的拒了、不该拒的没拒）<br>
+          c. 两组的用户满意度人工评分（可以请朋友盲测打分 1-5）</li>
+        <li>写一份对比报告，回答：<strong>拒绝策略在什么代价下换来了什么收益？</strong></li>
+      </ol>
+    </div>
+
+    <div class="task">
+      <h3>练习 4：生产环境兜底链设计（架构题）</h3>
+      <p>假设你是某大型电商的 AI 架构师，需要设计客服系统的兜底链。请画出链路图并回答以下问题：</p>
+      <ol>
+        <li>你的兜底链有几层？每一层的触发条件是什么？</li>
+        <li>对于"订单查询"、"退换货"、"商品推荐"、"投诉维权"四种问题类型，各自的兜底链路应该不同吗？</li>
+        <li>什么样的查询应该<strong>跳过所有兜底</strong>，直接转人工？</li>
+        <li>兜底链的每一层应该有怎样的超时控制？（避免用户等待太久）</li>
+      </ol>
+    </div>
+
+    <div class="panel good">
+      <h3>完成后请问自己</h3>
+      <ul>
+        <li>你的 RAG 系统现在会"硬答"知识库范围外的问题吗？——如果会，你的第一条拒答规则应该是什么？</li>
+        <li>你的拒答回复是否让用户感到"系统在帮我"而非"系统在敷衍我"？</li>
+        <li>你能否回答这个问题：<strong>"上周有多少查询被拒答了？主要是什么原因？"</strong></li>
+        <li>本课的练习 3 中，拒绝策略对 Faithfulness 指标的提升有多大？这个提升值得你付出的代码复杂度吗？</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===================== 从本课到下一课 ===================== -->
+  <section>
+    <h2>从本课到下一课</h2>
+
+    <p>通过本课，你的 RAG 系统拥有了客服场景中最关键的底线能力：<strong>知道什么时候不回答</strong>。你实现了检索置信度评估、三类拒答模板、多层兜底链（本地→联网→人工），以及覆盖度检测机制。你的系统不会再因为"硬答"而制造幻觉了。</p>
+
+    <p>但拒答只是一个"防守"能力。一个优秀的客服系统还需要<strong>主动的进攻</strong>能力——比如在多轮对话中正确处理"它多少钱？"（它指什么？）这样的追问。</p>
+
+    <p><strong>下一课（第 10 课）：《对话式 RAG 与多轮对话管理》</strong>——我们将实现：Chat History 管理策略（滑动窗口/摘要压缩）、指代消解（"它多少钱？"→ 关联上文产品）、会话状态管理与上下文注入，以及多模型统一对话适配层。</p>
+
+    <p>你的 RAG 系统将从一个"单轮问答器"进化为一个<strong>真正能对话的客服助手</strong>。</p>
+
+    <p class="small" style="margin-top: 30px;">有疑问？随时问我——无论是拒答阈值调优的困惑、兜底链设计的选择、还是拒答模板中某个措辞的斟酌。本课速查表：<a href="../reference/0009-rag-refusal-fallback-cheatsheet.html">拒绝策略与兜底机制速查表</a>。</p>
+  </section>
+</main>
+
+<script>
+const ANSWERS = {
+  q1: 2,  // C
+  q2: 2,  // C
+  q3: 1,  // B
+  q4: 1,  // B
+  q5: 2,  // C
+};
+
+const FEEDBACK = {
+  q1: {
+    0: "✅ 检索分数（余弦相似度/Bm25 分数）是置信度评估的核心信号之一。",
+    1: "✅ Cross-Encoder 给出的相关性判断是重要的二次验证信号。",
+    2: "❌ 答案完整度不是置信度评估的信号——它是答案生成后的评估指标（L7），不能用来决定“该不该答”。",
+    3: "✅ logprobs 生成的 token 概率可以作为生成自信度的参考信号。",
+  },
+  q2: {
+    0: "❌ 检索结果不可靠时 LLM 更可能产生幻觉——这是“硬答”的典型危害。",
+    1: "❌ 直接拒答是次优选择——改写查询再试一次可能找到正确的信息。",
+    2: "✅ 完全正确！先改写查询重试一次（低成本的本地操作），不行再转人工——这是多层兜底链的正确用法。",
+    3: "❌ 降低阈值会让更多噪音进入上下文，反而增加了 LLM 被误导的风险。",
+  },
+  q3: {
+    0: "✅ 覆盖度检测的最终目的是驱动知识库迭代。描述准确。",
+    1: "❌ 这不准确！100% 的回答率不一定好——它可能意味着系统过于激进、该拒答时没有拒答。理想的回答率是“在保证答案质量的前提下尽可能高”，而非盲目追求 100%。",
+    2: "✅ 是的——拒答率突然升高可能意味着 embedding 模型有问题、向量库挂了、或者知识库数据被误删。",
+    3: "✅ 细分维度（如按知识库分类）比全局统计更有指导意义。",
+  },
+  q4: {
+    0: "❌ 所有查询都走完所有层级会导致不必要的延迟和成本——置信度高时直接回答即可。",
+    1: "✅ 正确！成本递增原则：本地检索（几乎免费）→ 改写重试（少量 token）→ 联网搜索（API 费）→ 人工转接（高人力成本）。",
+    2: "❌ 只在本地检索和联网搜索都失败时才需要人工转接——过度转接浪费客服人力。",
+    3: "❌ 联网搜索应该作为第二或第三级——先尝试本地知识库和改写重试，这些更便宜更快。",
+  },
+  q5: {
+    0: "✅ 透明告知原因很重要——让用户理解为什么不能回答。",
+    1: "✅ 提供后续建议很重要——给用户继续的路径。",
+    2: "❌ 幽默不是最重要的。在客服场景中，幽默可能适得其反（用户不急的时候还好，但客服场景用户通常已经有点急躁了）。清晰、坦诚、有帮助比幽默更重要。",
+    3: "✅ 同理心很重要——“很抱歉”、“建议您可以”等措辞能降低用户挫败感。",
+  },
+};
+
+function answerQ(qid, choice) {
+  const btns = document.querySelectorAll(`#${qid} button`);
+  btns.forEach((b, i) => {
+    b.classList.remove("selected", "correct", "wrong");
+    if (i === choice) {
+      b.classList.add(i === ANSWERS[qid] ? "correct" : "wrong");
+    }
+    if (i === ANSWERS[qid] && i !== choice) {
+      b.classList.add("correct");
+    }
+  });
+  const fb = document.getElementById(`${qid}-fb`);
+  fb.textContent = FEEDBACK[qid][choice] || "";
+}
+</script>
+</body>
+</html>

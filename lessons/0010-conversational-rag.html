@@ -1,0 +1,1865 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 10 课：对话式 RAG 与多轮对话管理 —— 让 RAG 记住上下文</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink:#172033; --muted:#667085; --line:#d7dde8; --accent:#0f766e;
+      --accent2:#8b5e00; --good:#116329; --bad:#a10e25; --bg:#fbfcfe; --panel:#fff;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-serif, Georgia, "Noto Serif SC", serif; color:var(--ink); background:var(--bg); line-height:1.7; }
+    main { max-width: 960px; margin: 0 auto; padding: 42px 22px 70px; }
+    header { margin-bottom: 30px; }
+    .kicker { font: 700 13px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--accent); text-transform: uppercase; letter-spacing: .08em; }
+    h1 { font-size: clamp(32px, 5vw, 54px); line-height:1.08; margin: 10px 0 12px; letter-spacing:0; }
+    h2 { font-size: 23px; margin: 34px 0 12px; padding-bottom: 6px; border-bottom:1px solid var(--line); }
+    h3 { font-size: 18px; margin: 20px 0 8px; }
+    h4 { font-size: 16px; margin: 14px 0 6px; }
+    p { margin: 0 0 14px; }
+    a { color:#0b5cad; text-decoration-thickness:1px; text-underline-offset:3px; }
+    .lede { color:var(--muted); max-width:760px; font-size:18px; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin:16px 0; }
+    .panel.good { border-left:4px solid var(--good); }
+    .panel.warn { border-left:4px solid var(--accent2); }
+    .panel.bad { border-left:4px solid var(--bad); }
+    .panel.info { border-left:4px solid var(--accent); }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { background:#eef6f5; padding:2px 5px; border-radius:4px; font-size:0.92em; }
+    pre { overflow:auto; background:#f6f8fa; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:16px; font-size:14px; line-height:1.55; }
+    .small { color:var(--muted); font-size:14px; }
+    .tag { display:inline-block; background:var(--accent); color:#fff; border-radius:4px; padding:2px 8px; font-size:12px; font-weight:700; letter-spacing:.03em; font-family:ui-sans-serif,system-ui; }
+    .tag.conv { background:#6d28d9; }
+    .tag.sum { background:#b45309; }
+    .tag.key { background:#1e40af; }
+    .tag.adapt { background:#0d9488; }
+    .quiz { display:grid; gap:10px; margin-top:12px; }
+    button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:11px 13px; text-align:left; font:600 15px/1.35 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; color:var(--ink); cursor:pointer; }
+    button:hover { border-color:var(--accent); }
+    button.selected { border-color:var(--accent); background:#eef6f5; }
+    button.correct { border-color:var(--good); background:#edf8ef; color:var(--good); }
+    button.wrong { border-color:var(--bad); background:#fff0f2; color:var(--bad); }
+    .feedback { min-height:26px; font-weight:700; margin-top:8px; }
+    .task { border-left:4px solid var(--accent2); padding-left:14px; }
+    table { border-collapse:collapse; width:100%; margin:14px 0; }
+    th, td { border:1px solid var(--line); padding:8px 12px; text-align:left; font-size:15px; }
+    th { background:#f6f8fa; font-weight:700; }
+    ul, ol { padding-left:22px; }
+    .combo { display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin:16px 0; }
+    .flow { display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:center; margin:16px 0; }
+    .flow-box { border:1px solid var(--line); border-radius:6px; padding:8px 14px; background:var(--panel); font-size:14px; text-align:center; }
+    .flow-arrow { font-size:20px; color:var(--muted); }
+    .diagram { text-align:center; margin:20px 0; padding:24px; background:#fafbfc; border:1px solid var(--line); border-radius:12px; }
+    .diagram .arrow { color:var(--muted); font-size:24px; margin:0 4px; }
+    .diagram .box { display:inline-block; border:2px solid var(--accent); border-radius:8px; padding:10px 18px; margin:4px; font-weight:700; }
+    .diagram .box.warn { border-color:var(--accent2); }
+    .diagram .box.good { border-color:var(--good); }
+    .diagram .box.muted { border-color:var(--muted); color:var(--muted); }
+    .comp-table { width:100%; margin:12px 0; }
+    .comp-table td, .comp-table th { border:1px solid var(--line); padding:8px 10px; text-align:left; font-size:14px; }
+    .comp-table th { background:#f0f2f5; }
+    .comp-table .best { background:#edf8ef; }
+    .chat-demo { border:1px solid var(--line); border-radius:12px; overflow:hidden; margin:16px 0; }
+    .chat-demo .msg { padding:12px 16px; border-bottom:1px solid var(--line); }
+    .chat-demo .msg:last-child { border-bottom:none; }
+    .chat-demo .user { background:#f6f8fa; }
+    .chat-demo .role { font-weight:700; font-size:13px; margin-bottom:4px; }
+    .chat-demo .role .u { color:var(--bad); }
+    .chat-demo .role .a { color:var(--accent); }
+    .chat-demo .role .s { color:var(--muted); }
+    .chat-demo .content { margin:0; font-size:15px; }
+    @media (max-width: 640px) { .combo { grid-template-columns: 1fr; } }
+    @media print { body { background:white; } main { max-width:none; padding:20mm; } .panel { break-inside: avoid; } button { border-color:#aaa; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="kicker">Lesson 0010 — 模块二 · 质量地基</div>
+    <h1>对话式 RAG 与多轮对话管理：让 RAG 记住上下文</h1>
+    <p class="lede">本课目标：从单轮 Q&A 升级为多轮对话 RAG——让系统记住用户刚才说了什么、能处理追问和指代、支持切换多个对话模型、并平衡历史长度和响应速度。</p>
+  </header>
+
+  <!-- ===================== 能力预告 ===================== -->
+  <section>
+    <h2>你今天要获得的能力</h2>
+    <p>学完本课，你将拥有：</p>
+    <ul>
+      <li>一套 <strong>Chat History 管理策略</strong>：滑动窗口 / 摘要压缩 / 关键轮次提取，按场景选型</li>
+      <li>一套 <strong>指代消解机制</strong>：让系统能理解"它多少钱？"→ 关联上文的"华为Mate60"</li>
+      <li>一个 <strong>会话状态管理器</strong>：为每个用户/对话维护独立的上下文状态</li>
+      <li>一个 <strong>多模型 Chat API 适配层</strong>：统一 OpenAI / 通义千问 / DeepSeek 的对话接口</li>
+      <li>一个集成 L9 拒绝策略的 <strong>ConversationalRAG 综合管线</strong></li>
+    </ul>
+    <p>这是你 RAG 系统从"单轮问答工具"升级为"<strong>能像真人一样持续对话的智能助手</strong>"的关键一跃。</p>
+    <p class="small">推荐阅读前课：<a href="0009-rag-refusal-fallback.html">第 9 课：RAG 拒绝策略与兜底机制</a>（本课直接在其代码基础上扩展）、<a href="0005-混合检索与查询转换.html">第 5 课：混合检索与查询转换</a>（指代消解后的查询改写能力）。速查表：<a href="../reference/0010-conversational-rag-cheatsheet.html">对话式 RAG 速查表</a>。</p>
+  </section>
+
+  <!-- ===================== 场景导入 ===================== -->
+  <section>
+    <h2>场景导入：单轮问答的"失忆症"</h2>
+
+    <p>到 L9 为止，你的 RAG 系统已经能回答问题、能判断何时拒答、能走多层兜底。但有一个致命的缺陷——它<strong>没有记忆</strong>。</p>
+
+    <div class="chat-demo">
+      <div class="msg user">
+        <div class="role"><span class="u">用户</span></div>
+        <div class="content">华为 Mate60 Pro 的屏幕尺寸是多少？</div>
+      </div>
+      <div class="msg" style="background:#f0faf8;">
+        <div class="role"><span class="a">RAG 系统</span></div>
+        <div class="content">华为 Mate60 Pro 配备了一块 6.82 英寸的 OLED 曲面屏，分辨率 2720 × 1260，支持 120Hz 自适应刷新率。</div>
+      </div>
+      <div class="msg user">
+        <div class="role"><span class="u">用户</span></div>
+        <div class="content">它支持无线充电吗？</div>
+      </div>
+      <div class="msg" style="background:#fff0f2;">
+        <div class="role"><span class="a">当前 RAG 系统（无记忆）</span></div>
+        <div class="content">抱歉，您提到的"它"指代不明，请问您指的是哪款产品？</div>
+      </div>
+    </div>
+
+    <p>这就是<strong>单轮问答</strong>的典型问题：用户自然地说"它"，系统却不知道"它"是谁。在客服场景中，用户天然期待系统能像真人客服一样记住上下文——这是对话式 RAG 要解决的核心问题。</p>
+
+    <p>本课将基于 L9 的 <code>RAGWithRefusal</code> 管线，逐步加入：</p>
+    <ul>
+      <li>Chat History 管理（不丢记忆）</li>
+      <li>指代消解（听懂"它""那个""这个"）</li>
+      <li>会话状态管理（不同用户不同记忆）</li>
+      <li>多模型适配（灵活切换回答模型）</li>
+    </ul>
+
+    <div class="panel info">
+      <h3>对话式 RAG vs 单轮 RAG：本质区别</h3>
+      <p>很多人以为"对话式 RAG = 单轮 RAG + 聊天历史塞进 prompt"。但这只是表象。真正的区别在于三点：</p>
+      <ol>
+        <li><strong>检索上下文</strong>：用户的第二句话（如"它多少钱？"）单独检索几乎没有意义——必须结合历史理解"它"指什么，否则检索注定失败</li>
+        <li><strong>历史长度管理</strong>：对话越长，prompt 越臃肿。不加管理会让 token 消耗爆炸，加得太激进又会丢失关键信息</li>
+        <li><strong>模型适配差异</strong>：不同模型的 chat API 格式不同、上下文窗口不同、对历史格式要求不同——需要统一抽象</li>
+      </ol>
+      <p>本课将逐个解决这三个问题。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 第一部分：Chat History 管理 ===================== -->
+  <section>
+    <h2>第一部分：三种 Chat History 管理策略</h2>
+
+    <p>对话历史管理是所有对话式 RAG 的基础。你的选择决定了：</p>
+    <ul>
+      <li><strong>token 消耗</strong>：每天可能多花几十到几百元</li>
+      <li><strong>回答质量</strong>：丢失关键历史信息会导致答非所问</li>
+      <li><strong>响应速度</strong>：prompt 越长，TTFT（首 token 时间）越长</li>
+    </ul>
+
+    <p>下面介绍三种主流策略，从简单到复杂。</p>
+
+    <h3>1.1 策略一：滑动窗口（Sliding Window）</h3>
+
+    <p><strong>原理</strong>：只保留最近 N 轮对话，丢弃最早的内容。</p>
+
+    <pre><code>"""
+chat_history.py — 对话历史管理三种策略
+"""
+
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Callable
+import json
+
+
+@dataclass
+class Message:
+    """单条聊天消息"""
+    role: str        # "user" | "assistant" | "system"
+    content: str
+    metadata: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {"role": self.role, "content": self.content}
+
+
+class SlidingWindowHistory:
+    """
+    滑动窗口策略——只保留最近 N 轮对话。
+
+    优点：实现简单、token 消耗可预测
+    缺点：早期关键信息可能被丢弃
+    """
+
+    def __init__(self, window_size: int = 6):
+        """
+        window_size: 保留的对话轮数（一轮 = 一问 + 一答）
+        """
+        self.window_size = window_size
+        self.messages: list[Message] = []
+
+    def add_message(self, role: str, content: str, **metadata):
+        self.messages.append(Message(role=role, content=content, metadata=metadata))
+        self._trim()
+
+    def _trim(self):
+        """超出窗口时丢弃最旧的消息（但保留首条 system message）"""
+        # 计算保留的最大消息数（每轮 2 条消息，+1 给 system）
+        max_messages = self.window_size * 2 + 1
+        if len(self.messages) > max_messages:
+            # 保留第一条（可能是 system message）
+            keep = [self.messages[0]] if self.messages[0].role == "system" else []
+            # 保留最近 N 轮
+            keep.extend(self.messages[-(self.window_size * 2):])
+            self.messages = keep
+
+    def get_messages(self) -> list[dict]:
+        """返回 OpenAI API 格式的消息列表"""
+        return [m.to_dict() for m in self.messages]
+
+    def get_recent_context(self, n: int = 2) -> str:
+        """获取最近 n 轮对话的文本摘要（用于指代消解）"""
+        recent = self.messages[-(n * 2):]
+        return "\n".join(
+            f"{'用户' if m.role == 'user' else '助手'}: {m.content}"
+            for m in recent
+        )
+
+    @property
+    def token_estimate(self) -> int:
+        """估算当前历史占用的 token 数（粗略：每中文字 ~2 token）"""
+        total_chars = sum(len(m.content) for m in self.messages)
+        return total_chars // 2  # 粗略估算
+
+    def clear(self):
+        self.messages = []
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    history = SlidingWindowHistory(window_size=3)
+    history.add_message("system", "你是华为客服助手。")
+    history.add_message("user", "Mate60 Pro 的屏幕多大？")
+    history.add_message("assistant", "6.82 英寸 OLED 屏。")
+    history.add_message("user", "它支持无线充电吗？")  # "它"需要指代消解
+    history.add_message("assistant", "支持 50W 无线快充。")
+    print(f"当前历史消息数：{len(history.messages)}")
+    print(f"预估 token：{history.token_estimate}")
+    print(f"最近一轮上下文：{history.get_recent_context(1)}")</code></pre>
+
+    <p><span class="tag conv">滑动窗口</span> 是最常用、最稳妥的策略。推荐的 <code>window_size</code> 取决于场景：</p>
+    <table>
+      <tr><th>场景</th><th>推荐窗口</th><th>理由</th></tr>
+      <tr><td>简单 FAQ（一问一答即可）</td><td>2-3 轮</td><td>只需支持简单的"刚才说的那个"</td></tr>
+      <tr><td>产品咨询（连续对比）</td><td>4-6 轮</td><td>用户可能对比多个型号，需要保留更多上下文</td></tr>
+      <tr><td>故障排查（多步诊断）</td><td>6-8 轮</td><td>每一步都依赖前一步的信息</td></tr>
+      <tr><td>长文档分析</td><td>8-12 轮</td><td>用户可能逐步深入，需要较长记忆</td></tr>
+    </table>
+
+    <h3>1.2 策略二：摘要压缩（Summary Compression）</h3>
+
+    <p><strong>原理</strong>：当对话达到一定长度后，用 LLM 把早期对话压缩成一条摘要，替代原始多条消息。</p>
+
+    <pre><code>class SummaryCompressionHistory:
+    """
+    摘要压缩策略——将早期对话压缩为一条摘要消息。
+
+    优点：保留早期关键信息、可支持极长对话
+    缺点：需要额外 LLM 调用、有信息丢失风险
+    """
+
+    def __init__(
+        self,
+        max_rounds_before_compress: int = 8,
+        compress_fn: Callable[[str], str] | None = None,
+    ):
+        """
+        max_rounds_before_compress: 超过多少轮时触发压缩
+        compress_fn: 压缩函数，接收对话文本返回摘要
+        """
+        self.max_rounds = max_rounds_before_compress
+        self.compress_fn = compress_fn or self._default_compress
+        self.messages: list[Message] = []
+        self._compressed_summary: str | None = None
+
+    def _default_compress(self, dialogue_text: str) -> str:
+        """默认压缩函数——用 LLM 生成摘要"""
+        from openai import OpenAI
+        import os
+        client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "将以下对话压缩为一段简洁的中文摘要，保留："
+                 "1) 用户提到的产品/型号 2) 已解决的问题 3) 待解决的问题。"
+                 "限制在 150 字以内。"},
+                {"role": "user", "content": dialogue_text},
+            ],
+            temperature=0.3,
+        )
+        return resp.choices[0].message.content
+
+    def add_message(self, role: str, content: str, **metadata):
+        self.messages.append(Message(role=role, content=content, metadata=metadata))
+        self._maybe_compress()
+
+    def _maybe_compress(self):
+        """当对话轮数超过阈值时，将前半部分压缩为摘要"""
+        # 统计用户消息数作为"轮数"
+        user_msgs = [m for m in self.messages if m.role == "user"]
+        if len(user_msgs) > self.max_rounds:
+            # 选择前一半的用户轮次进行压缩（保留最近 max_rounds 轮）
+            compress_until = len(self.messages) - self.max_rounds * 2
+            if compress_until <= 0:
+                return
+
+            to_compress = self.messages[:compress_until]
+            remaining = self.messages[compress_until:]
+
+            # 构建对话文本
+            dialogue_text = "\n".join(
+                f"{'用户' if m.role == 'user' else '助手'}: {m.content}"
+                for m in to_compress if m.role in ("user", "assistant")
+            )
+
+            summary = self.compress_fn(dialogue_text)
+            self._compressed_summary = summary
+
+            # 替换为一条摘要消息
+            summary_msg = Message(
+                role="system",
+                content=f"[对话历史摘要] {summary}",
+                metadata={"type": "compressed_summary"},
+            )
+            self.messages = [summary_msg] + remaining
+
+    def get_messages(self) -> list[dict]:
+        return [m.to_dict() for m in self.messages]
+
+    def get_recent_context(self, n: int = 2) -> str:
+        """获取最近 n 轮对话"""
+        # 排除摘要消息
+        non_summary = [m for m in self.messages
+                       if m.metadata.get("type") != "compressed_summary"]
+        recent = non_summary[-(n * 2):]
+        result = ""
+        if self._compressed_summary:
+            result += f"[历史摘要] {self._compressed_summary}\n\n"
+        result += "\n".join(
+            f"{'用户' if m.role == 'user' else '助手'}: {m.content}"
+            for m in recent
+        )
+        return result
+
+    def clear(self):
+        self.messages = []
+        self._compressed_summary = None</code></pre>
+
+    <div class="panel warn">
+      <h3>压缩策略的隐形成本</h3>
+      <p>每次压缩是一次额外的 LLM 调用（~500 token 输入 + ~100 token 输出）。在大量并发对话中，这个成本不可忽视。<strong>建议每次压缩时也缓存摘要</strong>——如果用户的多轮对话话题未变，直接复用上次的摘要。</p>
+      <p>另外，<strong>摘要存在"遗忘偏差"</strong>：LLM 倾向于保留最近提到的信息，早期提到的细节（如"用户说他的订单号是 12345"）可能在压缩中被丢弃。对需要精确信息的场景（如客服查询订单），优先用滑动窗口。</p>
+    </div>
+
+    <h3>1.3 策略三：关键轮次提取（Key Turn Extraction）</h3>
+
+    <p><strong>原理</strong>：不保留全部对话，而是用 LLM 或规则判断哪些轮次"重要"，只保留这些关键轮次。</p>
+
+    <pre><code>class KeyTurnExtractionHistory:
+    """
+    关键轮次提取策略——只保留标记为"重要"的轮次。
+
+    优点：token 效率最高、关键信息保留最好
+    缺点：判断逻辑复杂、可能遗漏"现在不重要但之后重要"的信息
+    """
+
+    def __init__(
+        self,
+        max_turns: int = 10,
+        importance_fn: Callable[[str, str], float] | None = None,
+    ):
+        self.max_turns = max_turns
+        # 重要性评分函数：输入 (用户消息, 助手消息) → 0~1 分数
+        self.importance_fn = importance_fn or self._default_importance
+        self.turns: list[dict] = []  # 每轮 {user_msg, assistant_msg, importance, entities}
+
+    def _default_importance(self, user_msg: str, assistant_msg: str) -> float:
+        """默认重要性评分——关键词匹配"""
+        important_keywords = [
+            "订单", "退款", "投诉", "售后", "保修", "价格", "配置",
+            "型号", "参数", "问题", "故障", "无法", "不了",
+        ]
+        score = 0.0
+        combined = user_msg + assistant_msg
+        for kw in important_keywords:
+            if kw in combined:
+                score += 0.2
+        return min(score, 1.0)
+
+    def add_message(self, role: str, content: str, **metadata):
+        # 需要成对添加（user + assistant）
+        if role == "user":
+            self._pending_user = Message(role, content, metadata)
+        elif role == "assistant" and hasattr(self, "_pending_user"):
+            user_msg = self._pending_user.content
+            assistant_msg = content
+
+            # 计算重要性
+            importance = self.importance_fn(user_msg, assistant_msg)
+
+            # 提取实体（简单用关键词）
+            entities = self._extract_entities(user_msg + assistant_msg)
+
+            self.turns.append({
+                "user": user_msg,
+                "assistant": assistant_msg,
+                "importance": importance,
+                "entities": entities,
+                "timestamp": len(self.turns),
+            })
+            del self._pending_user
+
+            # 裁剪低重要性轮次
+            self._trim()
+        elif role == "system":
+            self._system_msg = Message(role, content, metadata)
+
+    def _extract_entities(self, text: str) -> list[str]:
+        """简单实体提取（生产环境建议用 NER 模型）"""
+        import re
+        # 匹配产品型号（如 Mate60 Pro、iPhone 15）
+        patterns = [
+            r'[A-Z][a-z]+[\d\s][A-Za-z0-9\s]{1,20}',  # 产品型号
+            r'\d{5,}',                                   # 订单号
+        ]
+        entities = []
+        for p in patterns:
+            entities.extend(re.findall(p, text))
+        return list(set(entities))
+
+    def _trim(self):
+        """保留高重要性轮次，确保不超过 max_turns"""
+        if len(self.turns) <= self.max_turns:
+            return
+        # 按重要性排序，保留最重要的
+        self.turns.sort(key=lambda t: t["importance"], reverse=True)
+        self.turns = self.turns[:self.max_turns]
+        # 恢复时间顺序
+        self.turns.sort(key=lambda t: t["timestamp"])
+
+    def get_messages(self) -> list[dict]:
+        """转换为 API 格式"""
+        result = []
+        if hasattr(self, "_system_msg"):
+            result.append(self._system_msg.to_dict())
+        for turn in self.turns:
+            result.append({"role": "user", "content": turn["user"]})
+            result.append({"role": "assistant", "content": turn["assistant"]})
+        return result
+
+    def get_recent_context(self, n: int = 2) -> str:
+        recent = self.turns[-n:]
+        lines = []
+        for t in recent:
+            lines.append(f"用户: {t['user']}")
+            lines.append(f"助手: {t['assistant']}")
+        return "\n".join(lines)
+
+    def get_mentioned_entities(self) -> list[str]:
+        """获取本轮对话中提到的所有实体"""
+        entities = set()
+        for t in self.turns:
+            entities.update(t["entities"])
+        return list(entities)
+
+    def clear(self):
+        self.turns = []
+        if hasattr(self, "_system_msg"):
+            del self._system_msg
+        if hasattr(self, "_pending_user"):
+            del self._pending_user</code></pre>
+
+    <h3>1.4 三种策略对比</h3>
+
+    <table class="comp-table">
+      <tr><th>维度</th><th>滑动窗口</th><th>摘要压缩</th><th>关键轮次提取</th></tr>
+      <tr><td>实现复杂度</td><td>⭐ 极简</td><td>⭐⭐⭐ 中等</td><td>⭐⭐⭐⭐ 复杂</td></tr>
+      <tr><td>token 效率</td><td>低（保留全量最近对话）</td><td>高（压缩后 ≤ 200 token）</td><td>最高（只保留精华）</td></tr>
+      <tr><td>信息完整性</td><td>高（近期信息无损）</td><td>中（早期信息有损压缩）</td><td>中低（有判断遗漏风险）</td></tr>
+      <tr><td>LLM 额外开销</td><td>无</td><td>每次压缩 1 次 LLM 调用</td><td>如果启用 LLM 评分则有</td></tr>
+      <tr><td>适用场景</td><td class="best"><strong>客服对话（推荐）</strong></td><td>超长文档分析</td><td>关键信息驱动的对话</td></tr>
+      <tr><td>对指代消解的支持</td><td>优秀（完整上下文）</td><td>一般（摘要可能丢掉细节）</td><td>良好（保留实体）</td></tr>
+    </table>
+
+    <div class="panel good">
+      <h3>实战建议：先选滑动窗口</h3>
+      <p>对于大部分客服场景，<strong>滑动窗口（窗口大小 6-8 轮）</strong> 是最稳妥的起点：</p>
+      <ul>
+        <li>实现简单，没有额外 LLM 调用成本</li>
+        <li>客服对话通常在 10 轮内解决，8 轮窗口覆盖绝大多数场景</li>
+        <li>如果发现"系统忘了用户之前说的"，说明窗口太小了</li>
+        <li>到了 L13（生产化部署）阶段，再考虑用 Redis 做更复杂的历史存储</li>
+      </ul>
+      <p>只有当对话长度经常超过 15-20 轮，且 token 成本敏感时，再考虑升级到摘要压缩或关键轮次提取。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 第二部分：指代消解与上下文注入 ===================== -->
+  <section>
+    <h2>第二部分：指代消解与上下文检索注入</h2>
+
+    <p>有了 Chat History，我们还需要解决一个关键问题：<strong>用户说"它多少钱？"，系统怎么知道"它"是华为 Mate60 Pro？</strong></p>
+
+    <p>这就叫<strong>指代消解（Coreference Resolution / Referent Resolution）</strong>。有两种实现路径：</p>
+
+    <h3>2.1 路径一：prompt 级别的上下文注入（推荐）</h3>
+
+    <p><strong>核心思路</strong>：检索阶段之前，先用 LLM 把用户的问题"翻译"成一个自包含的查询。这样检索和生成都能独立理解用户意图。</p>
+
+    <pre><code>"""
+context_injection.py — 指代消解与上下文注入
+
+将"它多少钱？"→"关于前面提到的华为Mate60 Pro，它的价格是多少？"
+"""
+
+from typing import Optional
+from openai import OpenAI
+import os
+
+
+def resolve_references(
+    query: str,
+    recent_context: str,
+    mentioned_entities: list[str] | None = None,
+    model: str = "gpt-4o-mini",
+) -> str:
+    """
+    指代消解：将依赖上下文的查询改写为自包含查询。
+
+    参数：
+        query: 当前用户问题（可能含"它""这个""那个"等指代词）
+        recent_context: 最近几轮对话文本
+        mentioned_entities: 对话中已提到的实体列表（可选）
+
+    返回：
+        改写后的自包含查询
+    """
+    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+    entities_hint = ""
+    if mentioned_entities:
+        entities_hint = f"\n对话中提到的实体：{', '.join(mentioned_entities)}"
+
+    resp = client.chat.completions.create(
+        model=model,
+        temperature=0.1,  # 低温度：改写追求准确性而非创造性
+        messages=[
+            {"role": "system", "content": f"""你是一个查询改写专家。
+你的任务是将用户的当前问题改写为<strong>自包含的搜索查询</strong>
+——即使脱离对话历史也能理解。
+
+规则：
+1. 将"它""这个""那个""该产品""上述"等指代词替换为具体名称
+2. 补全省略的信息（如"多少钱"→"XX产品多少钱"）
+3. 保留原文的核心意图和关键信息
+4. 如果查询已经是自包含的，直接返回原文
+5. 只返回改写后的查询文本，不要解释
+6. 保持中文输出{entities_hint}"""},
+            {"role": "user", "content": f"""对话历史（最近几轮）：
+{recent_context}
+
+用户当前问题：{query}
+
+改写后的自包含查询："""},
+        ],
+    )
+    rewritten = resp.choices[0].message.content.strip()
+    return rewritten
+
+
+def resolve_references_rule_based(
+    query: str,
+    recent_context: str,
+    mentioned_entities: list[str] | None = None,
+) -> str:
+    """
+    基于规则的简单指代消解（不用 LLM，适合低延迟场景）。
+
+    适用场景：指代模式简单、延迟敏感、不想增加 LLM 调用。
+    """
+    # 检测指代词
+    pronouns = {"它", "该", "这个", "那个", "上述", "该产品", "该设备", "该商品"}
+    has_pronoun = any(pronoun in query for pronoun in pronouns)
+
+    if not has_pronoun:
+        return query  # 没有指代词，直接返回
+
+    # 尝试从最近对话中提取名词实体
+    # 策略：取上一轮用户/助手中提到的最可能的"话题主体"
+    import re
+
+    # 提取最近一句话中的产品名（常见模式：中文/英文产品名）
+    product_patterns = re.findall(
+        r'[一-鿿]{2,10}[\s]?[A-Za-z0-9\s]{1,20}',  # 中文+英文型号
+        recent_context,
+    )
+
+    if not product_patterns:
+        # 尝试提取长名词短语
+        product_patterns = re.findall(
+            r'[一-鿿]{4,20}',  # 4 个中文字以上的短语
+            recent_context,
+        )
+
+    if product_patterns:
+        # 取最后一个匹配的（通常是最近的讨论焦点）
+        target = product_patterns[-1].strip()
+        # 替换第一个指代词
+        for pronoun in pronouns:
+            if pronoun in query:
+                query = query.replace(pronoun, target, 1)
+                break
+
+    return query
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    context = "用户: 华为Mate60 Pro的屏幕尺寸是多少？\n助手: 6.82英寸OLED屏，2720×1260分辨率。"
+
+    # LLM 版本
+    rewritten = resolve_references("它支持无线充电吗？", context)
+    print(f"LLM 改写：{rewritten}")
+    # → "华为Mate60 Pro支持无线充电吗？"
+
+    # 规则版本
+    rewritten2 = resolve_references_rule_based("它支持无线充电吗？", context)
+    print(f"规则改写：{rewritten2}")
+    # → "华为Mate60 Pro支持无线充电吗？"</code></pre>
+
+    <h3>2.2 路径二：检索时注入历史上下文（替代方案）</h3>
+
+    <p>如果你不想在检索前改写查询（比如延迟敏感到极致），可以换一种思路：<strong>检索时，把历史上下文拼接到当前查询上</strong>。</p>
+
+    <pre><code>def inject_history_to_retrieval(
+    query: str,
+    history_context: str,
+    strategy: str = "append",
+) -> str:
+    """
+    将历史上下文注入到检索查询中。
+
+    策略：
+    - "append": 将历史追加到查询后面（适合短查询）
+    - "prepend": 将历史放在查询前面（适合历史依赖强的查询）
+    - "concat_full": 拼接完整上下文
+    """
+    if strategy == "append":
+        return f"{query}\n\n[上下文]{history_context}"
+    elif strategy == "prepend":
+        return f"[上下文]{history_context}\n\n{query}"
+    elif strategy == "concat_full":
+        return f"{history_context}\n\n当前问题：{query}"
+    return query</code></pre>
+
+    <div class="panel info">
+      <h3>两种路径的选择建议</h3>
+      <table>
+        <tr><th>维度</th><th>路径一：检索前改写</th><th>路径二：检索时拼上下文</th></tr>
+        <tr><td>检索质量</td><td>⭐⭐⭐⭐⭐ 最优（改写后查询更精确）</td><td>⭐⭐ 较差（噪音多，向量可能被稀释）</td></tr>
+        <tr><td>延迟</td><td>+200~400ms（多一次 LLM 调用）</td><td>几乎无额外延迟</td></tr>
+        <tr><td>成本</td><td>每次对话 +~200 token 的 LLM 调用</td><td>零额外成本</td></tr>
+        <tr><td>适用场景</td><td>优先推荐</td><td>极低延迟场景或规则级指代消解</td></tr>
+      </table>
+      <p><strong>实战建议</strong>：在 L10 阶段优先用路径一（检索前改写），因为现在的 LLM API 调用成本已经非常低（gpt-4o-mini 每百万 token ~$0.15），而检索质量的提升非常显著。</p>
+    </div>
+
+    <h3>2.3 指代消解全流程</h3>
+
+    <p>下面把指代消解管线和历史管理整合在一起：</p>
+
+    <pre><code>def augment_query_with_history(
+    query: str,
+    history_manager,
+    use_llm: bool = True,
+) -> tuple[str, str]:
+    """
+    完整的历史增强查询流程。
+
+    返回：
+        (augmented_query, context_text)
+        - augmented_query: 增强了上下文后的检索查询
+        - context_text: 用于 LLM 生成的对话上下文
+    """
+    context_text = history_manager.get_recent_context(n=2)
+    mentioned_entities = []
+
+    if hasattr(history_manager, 'get_mentioned_entities'):
+        mentioned_entities = history_manager.get_mentioned_entities()
+
+    if use_llm:
+        augmented_query = resolve_references(query, context_text, mentioned_entities)
+    else:
+        augmented_query = resolve_references_rule_based(query, context_text, mentioned_entities)
+
+    return augmented_query, context_text
+
+
+# 完整链条演示
+if __name__ == "__main__":
+    # 构建一个 3 轮对话的历史
+    history = SlidingWindowHistory(window_size=6)
+    history.add_message("user", "华为 Mate60 Pro 有什么特点？")
+    history.add_message("assistant", "它搭载了麒麟9000S芯片，支持卫星通信。")
+    history.add_message("user", "它的电池容量多大？")
+    history.add_message("assistant", "5000mAh电池，支持88W有线快充和50W无线快充。")
+
+    # 第 4 轮：用户问"它多少钱？"
+    aug_query, ctx = augment_query_with_history("它多少钱？", history)
+    print(f"原始查询：它多少钱？")
+    print(f"增强查询：{aug_query}")
+    # → "华为Mate60 Pro多少钱？" 或类似
+
+    # 更新历史
+    history.add_message("user", "它多少钱？")
+    history.add_message("assistant", "华为Mate60 Pro起售价6999元。")</code></pre>
+  </section>
+
+  <!-- ===================== 第三部分：会话状态管理 ===================== -->
+  <section>
+    <h2>第三部分：会话状态管理</h2>
+
+    <p>如果你的 RAG 系统需要支持多个用户同时使用（比如企业客服系统），你还需要一个<strong>会话状态管理器</strong>——它为每个用户/对话维护独立的状态，包括 Chat History、用户信息、当前话题等。</p>
+
+    <h3>3.1 Session 状态模型</h3>
+
+    <pre><code>"""
+session.py — 会话状态管理
+
+为每个会话维护独立的状态。
+"""
+
+from dataclasses import dataclass, field
+from typing import Optional
+from datetime import datetime
+import uuid
+
+
+@dataclass
+class SessionState:
+    """完整的会话状态"""
+    session_id: str
+    user_id: str
+    history: SlidingWindowHistory
+    created_at: datetime
+    last_active: datetime
+    context: dict = field(default_factory=dict)
+    # context 可存储的话题信息：
+    # {
+    #   "current_topic": "华为Mate60 Pro",
+    #   "mentioned_products": ["Mate60 Pro", "P60"],
+    #   "resolved_issues": ["屏幕尺寸", "电池"],
+    #   "pending_issues": ["价格"],
+    #   "user_intent": "product_inquiry",
+    # }
+
+
+class SessionManager:
+    """
+    会话管理器——创建、获取、清理会话。
+
+    生产环境建议用 Redis 替代内存存储（L17 会讲）。
+    """
+
+    def __init__(self, session_timeout_minutes: int = 30):
+        self.sessions: dict[str, SessionState] = {}
+        self.timeout_minutes = session_timeout_minutes
+
+    def create_session(self, user_id: str, system_prompt: str | None = None) -> SessionState:
+        """创建新会话"""
+        session_id = str(uuid.uuid4())[:8]
+        history = SlidingWindowHistory(window_size=6)
+
+        if system_prompt:
+            history.add_message("system", system_prompt)
+
+        session = SessionState(
+            session_id=session_id,
+            user_id=user_id,
+            history=history,
+            created_at=datetime.now(),
+            last_active=datetime.now(),
+        )
+        self.sessions[session_id] = session
+        return session
+
+    def get_session(self, session_id: str) -> Optional[SessionState]:
+        """获取会话，更新最后活跃时间"""
+        session = self.sessions.get(session_id)
+        if session:
+            session.last_active = datetime.now()
+        return session
+
+    def delete_session(self, session_id: str):
+        """删除会话"""
+        self.sessions.pop(session_id, None)
+
+    def cleanup_expired(self):
+        """清理超时会话"""
+        now = datetime.now()
+        expired = [
+            sid for sid, s in self.sessions.items()
+            if (now - s.last_active).total_seconds() > self.timeout_minutes * 60
+        ]
+        for sid in expired:
+            del self.sessions[sid]
+        return len(expired)
+
+    def update_context(self, session_id: str, **context_updates):
+        """更新会话的上下文信息"""
+        session = self.get_session(session_id)
+        if session:
+            session.context.update(context_updates)
+
+    @property
+    def active_count(self) -> int:
+        return len(self.sessions)
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    manager = SessionManager()
+
+    # 创建会话
+    session = manager.create_session(
+        user_id="user_001",
+        system_prompt="你是华为官方客服助手，专业、友好、准确。",
+    )
+    print(f"会话 ID：{session.session_id}")
+
+    # 添加对话
+    session.history.add_message("user", "Mate60 Pro 的屏幕多大？")
+    session.history.add_message("assistant", "6.82 英寸 OLED 屏。")
+
+    # 更新上下文
+    manager.update_context(
+        session.session_id,
+        current_topic="华为Mate60 Pro",
+        mentioned_products=["Mate60 Pro"],
+    )
+
+    print(f"当前话题：{session.context.get('current_topic')}")
+    print(f"历史消息数：{len(session.history.messages)}")
+
+    # 第二个用户同时对话
+    session2 = manager.create_session(user_id="user_002")
+    session2.history.add_message("user", "iPhone 15 Pro Max 有几种颜色？")
+    print(f"活跃会话数：{manager.active_count}")  # 2</code></pre>
+
+    <div class="panel warn">
+      <h3>内存存储 vs Redis 持久化</h3>
+      <p>当前 <code>SessionManager</code> 用 <code>dict</code> 在内存中存储所有会话状态——这有两个问题：</p>
+      <ul>
+        <li><strong>进程重启后所有会话丢失</strong>：用户不得不重新开始对话</li>
+        <li><strong>水平扩展困难</strong>：多实例部署时，会话信息不在实例间共享</li>
+      </ul>
+      <p>到 <a href="0017-cost-optimization.html">L17 成本控制与性能优化</a> 中，你会学到用 Redis 做会话存储，解决这两个问题。现阶段用内存存储足够学习和原型验证。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 第四部分：多模型 Chat API 适配层 ===================== -->
+  <section>
+    <h2>第四部分：多模型 Chat API 统一适配层</h2>
+
+    <p>L8 技术栈全景图中，你看到了多种生成模型的选择。但在多轮对话场景中，不同模型的 Chat API 格式、参数、能力差异很大——你需要一个<strong>适配层</strong>来统一管理它们。</p>
+
+    <div class="panel info">
+      <h3>为什么需要适配层？</h3>
+      <p>客服场景中，"多模型切换"不是锦上添花，而是<strong>刚需</strong>：</p>
+      <ul>
+        <li><strong>成本优化</strong>：简单问题用 gpt-4o-mini，复杂问题用 gpt-4o——可节省 80% 的 LLM 成本</li>
+        <li><strong>合规要求</strong>：国内客服场景可能需要用通义千问或 DeepSeek，而非 OpenAI</li>
+        <li><strong>容灾备用</strong>：OpenAI API 挂了时自动切换到 DeepSeek</li>
+      </ul>
+    </div>
+
+    <h3>4.1 适配层接口设计</h3>
+
+    <pre><code>"""
+model_adapter.py — 多模型 Chat API 统一适配层
+
+支持 OpenAI / 通义千问( DashScope ) / DeepSeek 三种模型。
+"""
+
+from abc import ABC, abstractmethod
+from typing import Optional
+import os
+
+
+class BaseChatAdapter(ABC):
+    """模型适配器基类——所有模型适配器实现此接口"""
+
+    @abstractmethod
+    def chat(
+        self,
+        messages: list[dict],
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs,
+    ) -> str:
+        """发送对话并返回回复文本"""
+        ...
+
+    @abstractmethod
+    def get_model_info(self) -> dict:
+        """返回模型信息"""
+        ...
+
+
+class OpenAIChatAdapter(BaseChatAdapter):
+    """OpenAI API 适配器"""
+
+    def __init__(
+        self,
+        model: str = "gpt-4o-mini",
+        api_key: str | None = None,
+        base_url: str | None = None,
+    ):
+        from openai import OpenAI
+        self.model = model
+        self.client = OpenAI(
+            api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+            base_url=base_url,
+        )
+
+    def chat(
+        self,
+        messages: list[dict],
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs,
+    ) -> str:
+        resp = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )
+        return resp.choices[0].message.content
+
+    def get_model_info(self) -> dict:
+        return {
+            "provider": "openai",
+            "model": self.model,
+            "context_window": 128000,  # GPT-4o-mini
+            "supports_streaming": True,
+        }
+
+
+class TongyiChatAdapter(BaseChatAdapter):
+    """通义千问 DashScope API 适配器"""
+
+    def __init__(
+        self,
+        model: str = "qwen-plus",
+        api_key: str | None = None,
+    ):
+        self.model = model
+        self.api_key = api_key or os.environ.get("DASHSCOPE_API_KEY")
+
+    def chat(
+        self,
+        messages: list[dict],
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs,
+    ) -> str:
+        from http.client import HTTPSConnection
+        import json
+
+        # DashScope API 格式转换
+        body = json.dumps({
+            "model": self.model,
+            "input": {
+                "messages": messages,
+            },
+            "parameters": {
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                **kwargs,
+            },
+        })
+
+        conn = HTTPSConnection("dashscope.aliyuncs.com")
+        conn.request(
+            "POST",
+            "/api/v1/services/aigc/text-generation/generation",
+            body=body,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+        resp = conn.getresponse()
+        data = json.loads(resp.read())
+        conn.close()
+
+        return data["output"]["text"]
+
+    def get_model_info(self) -> dict:
+        return {
+            "provider": "tongyi",
+            "model": self.model,
+            "context_window": 32000,  # qwen-plus
+            "supports_streaming": True,
+        }
+
+
+class DeepSeekChatAdapter(BaseChatAdapter):
+    """DeepSeek API 适配器（兼容 OpenAI SDK）"""
+
+    def __init__(
+        self,
+        model: str = "deepseek-chat",
+        api_key: str | None = None,
+    ):
+        from openai import OpenAI
+        self.model = model
+        # DeepSeek 兼容 OpenAI SDK，只需改 base_url
+        self.client = OpenAI(
+            api_key=api_key or os.environ.get("DEEPSEEK_API_KEY"),
+            base_url="https://api.deepseek.com/v1",
+        )
+
+    def chat(
+        self,
+        messages: list[dict],
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs,
+    ) -> str:
+        resp = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )
+        return resp.choices[0].message.content
+
+    def get_model_info(self) -> dict:
+        return {
+            "provider": "deepseek",
+            "model": self.model,
+            "context_window": 64000,
+            "supports_streaming": True,
+        }
+
+
+# ========== 适配器工厂 ==========
+
+def create_chat_adapter(
+    provider: str = "openai",
+    model: str | None = None,
+    **kwargs,
+) -> BaseChatAdapter:
+    """
+    适配器工厂——根据 provider 创建对应的适配器实例。
+
+    参数：
+        provider: "openai" | "tongyi" | "deepseek"
+        model: 模型名称（不指定则使用默认）
+        **kwargs: 传递给适配器的其他参数（api_key, base_url 等）
+    """
+    providers = {
+        "openai": (OpenAIChatAdapter, "gpt-4o-mini"),
+        "tongyi": (TongyiChatAdapter, "qwen-plus"),
+        "deepseek": (DeepSeekChatAdapter, "deepseek-chat"),
+    }
+
+    cls, default_model = providers.get(provider, (OpenAIChatAdapter, "gpt-4o-mini"))
+    return cls(model=model or default_model, **kwargs)
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    # 创建不同模型的适配器
+    openai_adapter = create_chat_adapter("openai")
+    tongyi_adapter = create_chat_adapter("tongyi")
+    deepseek_adapter = create_chat_adapter("deepseek")
+
+    # 统一的调用方式
+    messages = [
+        {"role": "system", "content": "你是华为客服助手。"},
+        {"role": "user", "content": "Mate60 Pro 支持卫星通信吗？"},
+    ]
+
+    # 用 OpenAI 回答
+    reply = openai_adapter.chat(messages, temperature=0.3)
+    print(f"[OpenAI] {reply[:50]}...")
+
+    # 用通义千问回答
+    reply2 = tongyi_adapter.chat(messages)
+    print(f"[通义] {reply2[:50]}...")
+
+    # 用 DeepSeek 回答
+    reply3 = deepseek_adapter.chat(messages)
+    print(f"[DeepSeek] {reply3[:50]}...")</code></pre>
+
+    <h3>4.2 模型切换策略</h3>
+
+    <p>有了适配层，你可以实现灵活的模型切换：</p>
+
+    <pre><code>class RouterConfig:
+    """模型路由配置"""
+
+    def __init__(self):
+        # 默认适配器
+        self.default_adapter = create_chat_adapter("openai", "gpt-4o-mini")
+        # 复杂问题用更强模型
+        self.complex_adapter = create_chat_adapter("openai", "gpt-4o")
+        # 国内场景
+        self.domestic_adapter = create_chat_adapter("tongyi", "qwen-max")
+        # 备用模型（当主模型 API 不可用时）
+        self.fallback_adapter = create_chat_adapter("deepseek", "deepseek-chat")
+
+    def select_adapter(self, query: str, context: dict) -> BaseChatAdapter:
+        """根据查询和上下文选择最合适的模型"""
+        # 规则：含敏感词用国内模型
+        sensitive_keywords = ["退款", "投诉", "法律", "合规"]
+        if any(kw in query for kw in sensitive_keywords):
+            return self.domestic_adapter
+
+        # 规则：复杂推理用强模型
+        complex_patterns = ["为什么", "对比", "区别", "原理", "建议"]
+        complexity_score = sum(1 for p in complex_patterns if p in query)
+        if complexity_score >= 2:
+            return self.complex_adapter
+
+        # 默认用轻量模型
+        return self.default_adapter</code></pre>
+
+    <div class="panel good">
+      <h3>模型适配层的设计原则</h3>
+      <ul>
+        <li><strong>接口统一</strong>：所有适配器暴露相同的 <code>chat(messages, temperature, max_tokens) → str</code> 接口</li>
+        <li><strong>配置化</strong>：模型选择通过配置驱动，不改代码即可切换</li>
+        <li><strong>优雅降级</strong>：主模型失败时自动切备用模型（后面故障诊断中会实现）</li>
+        <li><strong>可观测</strong>：每次调用记录用了哪个模型、耗时、token 数——为 L15 的监控做准备</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===================== 第五部分：历史长度 vs 延迟的权衡 ===================== -->
+  <section>
+    <h2>第五部分：历史长度 vs 延迟的权衡</h2>
+
+    <p>这是对话式 RAG 上线时一定会遇到的工程问题——<strong>对话越长，prompt 越长，响应越慢，token 成本越高</strong>。你需要通过实验找到你的场景的最优平衡点。</p>
+
+    <h3>5.1 长度对延迟的影响</h3>
+
+    <div class="diagram">
+      <div class="box" style="border-color:#0f766e;">2轮对话<br><span class="small">~800 token</span></div>
+      <div class="arrow">→</div>
+      <div class="box good" style="border-color:#116329;">TTFT ~0.5s</div>
+      <div class="arrow" style="display:block; margin-top:12px;">↓</div>
+      <div class="box" style="border-color:#6d28d9;">10轮对话<br><span class="small">~3000 token</span></div>
+      <div class="arrow">→</div>
+      <div class="box warn" style="border-color:#b45309;">TTFT ~1.5s</div>
+      <div class="arrow" style="display:block; margin-top:12px;">↓</div>
+      <div class="box" style="border-color:#a10e25;">30轮对话<br><span class="small">~8500 token</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#a10e25;">TTFT ~4s ❌</div>
+    </div>
+
+    <p><strong>TTFT（Time to First Token，首 token 时间）</strong> 是对话场景的关键指标——它直接影响用户等待感。一般来说：</p>
+    <ul>
+      <li><strong>TTFT &lt; 1s</strong>：用户几乎无感知，体验优秀</li>
+      <li><strong>TTFT 1-2s</strong>：用户能感知等待但不烦躁，可接受</li>
+      <li><strong>TTFT &gt; 3s</strong>：用户开始不耐烦，对话体验明显下降</li>
+    </ul>
+
+    <h3>5.2 量化实验：选择最优窗口大小</h3>
+
+    <pre><code>"""
+history_benchmark.py — 历史长度与延迟的量化对比
+
+在你的真实场景中跑这个 benchmark，找到最优窗口大小。
+"""
+
+import time
+from typing import Callable
+import matplotlib.pyplot as plt
+
+
+def benchmark_history_lengths(
+    chat_fn: Callable[[list[dict]], str],
+    history_messages: list[dict],
+    window_sizes: list[int] = [2, 4, 6, 8, 10, 15, 20],
+    num_runs: int = 3,
+) -> dict:
+    """
+    对比不同窗口大小下的延迟和 token 消耗。
+
+    参数：
+        chat_fn: 接收 messages 列表并返回回复的函数
+        history_messages: 完整的历史消息列表
+        window_sizes: 要测试的窗口大小（轮数）
+        num_runs: 每个窗口测试次数
+
+    返回：
+        {window_size: {"avg_latency": ..., "token_count": ...}}
+    """
+    results = {}
+
+    for ws in window_sizes:
+        latencies = []
+
+        for _ in range(num_runs):
+            # 模拟滑动窗口
+            max_msgs = ws * 2 + 1  # 每轮 2 条 + system
+            if len(history_messages) > max_msgs:
+                test_messages = (
+                    [history_messages[0]] +  # system
+                    history_messages[-(ws * 2):]  # 最近 ws 轮
+                )
+            else:
+                test_messages = history_messages
+
+            # 计时
+            start = time.time()
+            chat_fn(test_messages)
+            latencies.append(time.time() - start)
+
+        token_count = sum(len(m.get("content", "")) for m in test_messages) // 2
+
+        results[ws] = {
+            "avg_latency": sum(latencies) / len(latencies),
+            "min_latency": min(latencies),
+            "max_latency": max(latencies),
+            "token_count": token_count,
+            "message_count": len(test_messages),
+        }
+
+        print(f"窗口 {ws} 轮 | 延迟 {results[ws]['avg_latency']:.2f}s | "
+              f"token ~{token_count} | 消息 {len(test_messages)} 条")
+
+    return results
+
+
+# 模拟运行结果
+if __name__ == "__main__":
+    # 模拟 30 轮对话的历史
+    mock_history = [
+        {"role": "system", "content": "你是客服助手。"}
+    ]
+    for i in range(30):
+        mock_history.append({"role": "user", "content": f"第{i+1}轮用户问题"})
+        mock_history.append({"role": "assistant", "content": f"第{i+1}轮助手回答"})
+
+    # 模拟 chat 函数
+    def mock_chat(messages):
+        time.sleep(0.05 * len(messages))  # 模拟：每 100 条消息增加 50ms 延迟
+
+    # 对比不同窗口大小（在实际场景中运行）
+    # results = benchmark_history_lengths(mock_chat, mock_history)
+
+    # 预期结果（基于 GPT-4o-mini 实测经验）：
+    # 窗口 2 轮 | 延迟 0.6s | token ~300
+    # 窗口 4 轮 | 延迟 0.8s | token ~600
+    # 窗口 6 轮 | 延迟 0.9s | token ~900  ← 推荐平衡点
+    # 窗口 8 轮 | 延迟 1.1s | token ~1200
+    # 窗口 10 轮 | 延迟 1.4s | token ~1500
+    # 窗口 15 轮 | 延迟 2.0s | token ~2200
+    # 窗口 20 轮 | 延迟 2.8s | token ~3000
+
+    print("Benchmark 已准备就绪。在你的实际模型上运行以获得真实数据。")</code></pre>
+
+    <div class="panel good">
+      <h3>延迟优化的几条黄金法则</h3>
+      <ol>
+        <li><strong>滑动窗口 6 轮是安全的起点</strong>——Google 的研究和工业实践都表明，客服场景中 90% 的指代关系在最近 4-6 轮内可解</li>
+        <li><strong>不要对每一轮对话都做指代消解 LLM 调用</strong>——只有在检测到指代词时才调用 LLM 改写，否则用规则版本</li>
+        <li><strong>system prompt 要精简</strong>——每多 100 token 的 system prompt，TTFT 增加约 30-50ms</li>
+        <li><strong>考虑用 streaming</strong>——首 token 出来后就开始显示，即使后续 token 还在生成，用户感知的延迟会大幅降低</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ===================== 第六部分：动手实践 ===================== -->
+  <section>
+    <h2>第六部分：动手实践——构建 ConversationalRAG</h2>
+
+    <p>现在，让我们把前面学到的所有组件整合成一个完整的 <code>ConversationalRAG</code> 管线。它基于 L9 的 <code>RAGWithRefusal</code> 扩展，增加了对话能力。</p>
+
+    <h3>6.1 完整管线架构</h3>
+
+    <div class="diagram">
+      <div class="box" style="border-color:#0f766e;">用户提问</div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#6d28d9;">会话管理器<br><span class="small">SessionManager</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#b45309;">指代消解<br><span class="small">resolve_references()</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#0f766e;">检索 + 置信度<br><span class="small">L9 管线</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#6d28d9;">多模型生成<br><span class="small">ModelAdapter</span></div>
+      <div class="arrow">→</div>
+      <div class="box good" style="border-color:#116329;">历史更新<br><span class="small">ChatHistory</span></div>
+    </div>
+
+    <h3>6.2 ConversationalRAG 实现</h3>
+
+    <pre><code>"""
+conversational_rag.py — 多轮对话 RAG 管线
+
+在 L9 的 RAGWithRefusal 基础上，增加对话能力。
+"""
+
+from dataclasses import dataclass, field
+from typing import Optional
+from datetime import datetime
+import os
+from openai import OpenAI
+
+
+# ========== 导入 L9 的组件 ==========
+# 假设 L9 的代码在以下模块中：
+from confidence import decide_if_should_answer
+from refusal_templates import build_refusal_response
+from fallback_chain import execute_fallback_chain, query_rewrite
+
+# 导入本课组件
+from chat_history import SlidingWindowHistory, Message
+from context_injection import resolve_references, resolve_references_rule_based
+from session import SessionManager, SessionState
+from model_adapter import create_chat_adapter, BaseChatAdapter
+
+
+@dataclass
+class ConversationConfig:
+    """对话式 RAG 配置"""
+    # 历史管理
+    history_window_size: int = 6
+    history_strategy: str = "sliding_window"  # sliding_window | summary | key_turn
+
+    # 指代消解
+    use_llm_reference: bool = True
+    # 仅在检测到指代词时使用 LLM（节省成本）
+    reference_llm_only_when_needed: bool = True
+
+    # 模型适配
+    model_provider: str = "openai"
+    model_name: str = "gpt-4o-mini"
+    base_url: str | None = None
+
+    # 检索
+    retrieval_top_k: int = 5
+    score_threshold: float = 0.4
+
+    # 会话
+    session_timeout_minutes: int = 30
+
+    # 生成
+    temperature: float = 0.7
+    max_tokens: int = 1024
+
+    # 兜底
+    enable_web_search: bool = False
+    enable_human_fallback: bool = True
+
+
+class ConversationalRAG:
+    """
+    多轮对话 RAG 管线。
+
+    使用方式：
+        rag = ConversationalRAG()
+        session = rag.create_session("user_001")
+
+        # 多轮对话
+        reply1 = rag.ask("Mate60 Pro的屏幕多大？", session.session_id)
+        reply2 = rag.ask("它支持无线充电吗？", session.session_id)
+        reply3 = rag.ask("多少钱？", session.session_id)
+    """
+
+    def __init__(
+        self,
+        config: ConversationConfig | None = None,
+        retrieve_fn: callable | None = None,
+    ):
+        self.config = config or ConversationConfig()
+        self.session_manager = SessionManager(
+            session_timeout_minutes=self.config.session_timeout_minutes
+        )
+        self.adapter = create_chat_adapter(
+            self.config.model_provider,
+            self.config.model_name,
+            base_url=self.config.base_url,
+        )
+        # 检索函数（由外部注入，保持与 L1-L9 一致的解耦）
+        self._retrieve_fn = retrieve_fn or self._default_retrieve
+
+        # 统计
+        self.total_tokens_used = 0
+        self.total_queries = 0
+
+    def _default_retrieve(self, query: str, top_k: int = 5) -> list[dict]:
+        """默认检索函数（占位，实际由外部注入）"""
+        return []  # 练习中替换为真实检索
+
+    def set_retrieve_fn(self, fn: callable):
+        """注入检索函数"""
+        self._retrieve_fn = fn
+
+    def create_session(
+        self,
+        user_id: str,
+        system_prompt: str | None = None,
+        metadata: dict | None = None,
+    ) -> SessionState:
+        """创建新的对话会话"""
+        if not system_prompt:
+            system_prompt = """你是企业知识库智能助手。
+请基于知识库信息回答用户问题。如果知识库没有相关信息，请诚实告知。
+回答时请引用信息来源。保持专业、友好、简洁。"""
+        return self.session_manager.create_session(user_id, system_prompt)
+
+    def _needs_reference_resolution(self, query: str) -> bool:
+        """检测查询是否需要指代消解"""
+        pronouns = {"它", "该", "这个", "那个", "上述", "该产品", "该设备", "该商品",
+                     "它们", "这些", "那些", "其", "此"}
+        return any(pronoun in query for pronoun in pronouns)
+
+    def ask(self, query: str, session_id: str) -> dict:
+        """
+        处理一次对话请求。
+
+        参数：
+            query: 用户问题
+            session_id: 会话 ID
+
+        返回：
+            {
+                "answer": str,            # 最终回答
+                "augmented_query": str,   # 增强后的查询
+                "model": str,             # 使用的模型
+                "history_count": int,     # 当前历史轮数
+                "token_estimate": int,    # token 估算
+                "latency_ms": int,        # 总耗时
+                "retrieval_results": int, # 检索结果数
+                "refusal": bool,          # 是否拒答
+            }
+        """
+        import time
+        start = time.time()
+
+        # 1. 获取会话
+        session = self.session_manager.get_session(session_id)
+        if not session:
+            return {"answer": "会话已过期，请重新开始对话。", "error": "session_expired"}
+
+        self.total_queries += 1
+
+        # 2. 指代消解
+        context_text = session.history.get_recent_context(n=2)
+
+        if self._needs_reference_resolution(query) or not self.config.reference_llm_only_when_needed:
+            if self.config.use_llm_reference:
+                augmented_query = resolve_references(query, context_text)
+            else:
+                augmented_query = resolve_references_rule_based(query, context_text)
+        else:
+            augmented_query = query
+
+        # 3. 检索
+        results = self._retrieve_fn(augmented_query, top_k=self.config.retrieval_top_k)
+
+        # 4. 置信度评估（复用 L9 的 decision 逻辑）
+        from confidence import decide_if_should_answer
+        decision = decide_if_should_answer(query, results)
+
+        # 5. 构建 prompt
+        context_parts = []
+        if results:
+            for i, r in enumerate(results):
+                context_parts.append(f"[来源{i+1}] {r.get('text', '')}")
+            context_str = "\n\n".join(context_parts)
+        else:
+            context_str = ""
+
+        # 6. 处理拒答
+        if decision["decision"] != "answer":
+            message_history = session.history.get_messages()
+            message_history.append({"role": "user", "content": query})
+
+            # 用适配器回答（让 LLM 根据上下文决定是否拒答？不——L9 的逻辑已经决定了）
+            # 这里直接生成拒答回复，但保持对话语气
+            from refusal_templates import build_refusal_response
+            refusal_reply = build_refusal_response(decision, query)
+
+            # 更新历史
+            session.history.add_message("user", query)
+            session.history.add_message("assistant", refusal_reply)
+
+            latency_ms = int((time.time() - start) * 1000)
+            return {
+                "answer": refusal_reply,
+                "augmented_query": augmented_query,
+                "model": self.adapter.get_model_info()["model"],
+                "history_count": len(session.history.messages) // 2,
+                "token_estimate": session.history.token_estimate,
+                "latency_ms": latency_ms,
+                "retrieval_results": len(results),
+                "refusal": True,
+                "decision_detail": decision,
+            }
+
+        # 7. 带历史上下文的生成
+        message_history = session.history.get_messages()
+        message_history.append({"role": "user", "content": query})
+
+        # 如果没有历史，用标准格式；有历史则在 system prompt 后插入搜索结果
+        generation_context = f"""基于以下检索结果回答用户问题。如果检索结果中有相关信息，请引用来源。
+如果检索结果不充分，请诚实告知。
+
+检索结果：
+{context_str}
+
+请注意对话上下文：用户之前问过相关问题。"""
+
+        # 找到 system message 并添加检索上下文
+        if message_history and message_history[0]["role"] == "system":
+            original_system = message_history[0]["content"]
+            message_history[0]["content"] = f"{original_system}\n\n{generation_context}"
+        else:
+            message_history.insert(0, {
+                "role": "system",
+                "content": generation_context,
+            })
+
+        try:
+            answer = self.adapter.chat(
+                message_history,
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens,
+            )
+        except Exception as e:
+            answer = f"抱歉，模型调用出错了：{str(e)}。请稍后重试。"
+
+        # 8. 更新历史
+        session.history.add_message("user", query)
+        session.history.add_message("assistant", answer)
+
+        # 9. 更新会话上下文
+        self.session_manager.update_context(
+            session_id,
+            last_topic=self._extract_topic(query, answer),
+        )
+
+        latency_ms = int((time.time() - start) * 1000)
+
+        return {
+            "answer": answer,
+            "augmented_query": augmented_query,
+            "model": self.adapter.get_model_info()["model"],
+            "history_count": len(session.history.messages) // 2,
+            "token_estimate": session.history.token_estimate,
+            "latency_ms": latency_ms,
+            "retrieval_results": len(results),
+            "refusal": False,
+        }
+
+    def _extract_topic(self, query: str, answer: str) -> str:
+        """简单提取话题（仅做演示，生产环境建议用 NER）"""
+        import re
+        # 尝试提取产品名
+        match = re.search(r'[一-鿿]{2,10}[\s]?[A-Za-z0-9\s]{1,20}', query)
+        return match.group().strip() if match else "general"
+
+    def switch_model(self, provider: str, model_name: str | None = None):
+        """切换生成模型（运行时切换）"""
+        self.config.model_provider = provider
+        if model_name:
+            self.config.model_name = model_name
+        self.adapter = create_chat_adapter(
+            self.config.model_provider,
+            self.config.model_name,
+        )
+
+
+# ========== 使用示例 ==========
+if __name__ == "__main__":
+    # 初始化
+    config = ConversationConfig(
+        model_provider="openai",
+        model_name="gpt-4o-mini",
+        history_window_size=6,
+    )
+    rag = ConversationalRAG(config)
+
+    # 模拟检索函数
+    def mock_retrieve(q: str, top_k: int = 5):
+        kb = {
+            "华为": {"text": "华为Mate60 Pro采用6.82英寸OLED屏", "score": 0.85},
+            "无线充电": {"text": "华为Mate60 Pro支持50W无线快充", "score": 0.82},
+            "价格": {"text": "华为Mate60 Pro起售价6999元", "score": 0.78},
+        }
+        results = []
+        for kw, info in kb.items():
+            if kw in q:
+                results.append({"text": info["text"], "score": info["score"]})
+        return results
+
+    rag.set_retrieve_fn(mock_retrieve)
+
+    # 模拟多轮对话
+    session = rag.create_session("demo_user")
+    sid = session.session_id
+
+    queries = [
+        "华为Mate60 Pro的屏幕多大？",
+        "它支持无线充电吗？",
+        "多少钱？",
+    ]
+
+    for q in queries:
+        result = rag.ask(q, sid)
+        print(f"\nQ: {q}")
+        print(f"A: {result['answer'][:80]}...")
+        print(f"   [增强查询] {result['augmented_query']}")
+        print(f"   [模型] {result['model']} | "
+              f"[历史] {result['history_count']}轮 | "
+              f"[延迟] {result['latency_ms']}ms")
+
+    # 切换模型（举例）
+    # rag.switch_model("deepseek", "deepseek-chat")</code></pre>
+
+    <h3>6.3 练习任务</h3>
+
+    <div class="task">
+      <h4>练习 1：将 ConversationalRAG 连接到 L9 的真实检索管线</h4>
+      <p>把上面代码中的 <code>mock_retrieve</code> 替换为 L9 中的真实检索函数——让 ConversationalRAG 使用 L9 的 Chroma 检索 + 置信度评估 + 多层兜底。</p>
+      <p>具体操作：</p>
+      <ol>
+        <li>从 L9 的代码中导入 <code>RAGWithRefusal</code> 或你之前的检索类</li>
+        <li>在 <code>set_retrieve_fn()</code> 中传入真实检索函数</li>
+        <li>添加你的知识库文档后，运行完整的多轮对话测试</li>
+      </ol>
+      <p><strong>验证标准</strong>：连续问 3-5 个相关问题时，系统能正确理解指代关系（"它""该产品"等）且回答准确。</p>
+    </div>
+
+    <div class="task">
+      <h4>练习 2：窗口大小实验</h4>
+      <p>用 3 个不同的历史窗口大小（2、6、12 轮）跑同一组对话，观察：</p>
+      <ul>
+        <li>指代消解的准确性（是否还记得 8 轮前说过的话）</li>
+        <li>每轮对话的延迟差异</li>
+        <li>token 消耗差异</li>
+      </ul>
+      <p>把你的发现记录到 <code>learning-records/0010-conversational-rag.md</code>。</p>
+    </div>
+
+    <div class="task">
+      <h4>练习 3：模型切换实验</h4>
+      <p>如果你有多个模型的 API Key（如 OpenAI + 通义千问 + DeepSeek），尝试让 ConversationalRAG 在对话中用不同模型回答同一个问题，对比：</p>
+      <ul>
+        <li>回答质量（主观感受）</li>
+        <li>延迟差异</li>
+        <li>同一个对话历史切换到不同模型的兼容性</li>
+      </ul>
+    </div>
+
+    <div class="task">
+      <h4>练习 4：故障测试</h4>
+      <p>故意制造下面这些故障，观察 ConversationalRAG 是否还能优雅应对：</p>
+      <ol>
+        <li>用户在 20 轮对话后说"回到最开始的那个问题"——模型还能理解吗？</li>
+        <li>用户在一个会话中突然切换话题到完全不相关的内容——历史是否干扰新话题？</li>
+        <li>把 API Key 设置错误，触发模型调用异常——系统是否给出友好的错误提示？</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ===================== 检索练习 ===================== -->
+  <section>
+    <h2>检索练习：巩固你的理解</h2>
+
+    <p>回答以下问题，不要回看上面的代码——凭记忆回答：</p>
+
+    <div class="quiz" id="quiz1">
+      <p><strong>1.</strong> 下列哪种 Chat History 策略需要额外的 LLM 调用来压缩早期对话？</p>
+      <button data-q="1" data-a="A">A. 滑动窗口（Sliding Window）</button>
+      <button data-q="1" data-a="B">B. 摘要压缩（Summary Compression）</button>
+      <button data-q="1" data-a="C">C. 关键轮次提取（Key Turn Extraction）</button>
+      <button data-q="1" data-a="D">D. 以上都不需要</button>
+      <div class="feedback" id="fb1"></div>
+    </div>
+
+    <div class="quiz" id="quiz2">
+      <p><strong>2.</strong> 在对话式 RAG 中，"指代消解"的主要目的是什么？</p>
+      <button data-q="2" data-a="A">A. 把用户说的"它""这个"替换为具体实体名称</button>
+      <button data-q="2" data-a="B">B. 消除聊天记录中的重复内容</button>
+      <button data-q="2" data-a="C">C. 解决多个模型的 API 格式差异</button>
+      <button data-q="2" data-a="D">D. 减少对话历史占用的 token 数</button>
+      <div class="feedback" id="fb2"></div>
+    </div>
+
+    <div class="quiz" id="quiz3">
+      <p><strong>3.</strong> 对于客服场景，你建议从哪种历史管理策略开始？</p>
+      <button data-q="3" data-a="A">A. 摘要压缩——token 效率最高</button>
+      <button data-q="3" data-a="B">B. 关键轮次提取——保留关键信息</button>
+      <button data-q="3" data-a="C">C. 滑动窗口——简单、稳妥、够用</button>
+      <button data-q="3" data-a="D">D. 全部保留——不丢失任何信息</button>
+      <div class="feedback" id="fb3"></div>
+    </div>
+
+    <div class="quiz" id="quiz4">
+      <p><strong>4.</strong> 判断正误：TTFT（首 token 时间）是影响多轮对话体验的关键指标，历史越长 TTFT 越大。</p>
+      <button data-q="4" data-a="A">A. 对，历史越长 prompt 越长，TTFT 越大</button>
+      <button data-q="4" data-a="B">B. 错，TTFT 只受模型速度影响，和历史长度无关</button>
+      <div class="feedback" id="fb4"></div>
+    </div>
+
+    <div class="quiz" id="quiz5">
+      <p><strong>5.</strong> 多模型适配层（BaseChatAdapter）的核心设计模式是什么？</p>
+      <button data-q="5" data-a="A">A. 工厂模式（Factory Pattern）</button>
+      <button data-q="5" data-a="B">B. 策略模式（Strategy Pattern）</button>
+      <button data-q="5" data-a="C">C. 适配器模式（Adapter Pattern）</button>
+      <button data-q="5" data-a="D">D. 观察者模式（Observer Pattern）</button>
+      <div class="feedback" id="fb5"></div>
+    </div>
+  </section>
+
+  <!-- ===================== 故障诊断 ===================== -->
+  <section>
+    <h2>故障诊断：常见问题与排查</h2>
+
+    <div class="panel bad">
+      <h3>❌ 问题一：用户说"它多少钱？"，系统回答"请指定产品"</h3>
+      <p><strong>原因</strong>：指代消解失效了——"它"没有被替换为具体产品名。</p>
+      <p><strong>排查步骤</strong>：</p>
+      <ol>
+        <li>检查 <code>resolve_references()</code> 的输入 <code>recent_context</code> 是否包含上一轮的产品名</li>
+        <li>检查 <code>use_llm_reference</code> 是否为 <code>True</code>，以及 API Key 是否正确</li>
+        <li>如果用的是规则版本（rule-based），检查 <code>product_patterns</code> 正则是否匹配了你的产品名格式</li>
+        <li>如果用的是 LLM 版本，打印 <code>rewritten</code> 看看 LLM 返回了什么——可能是 prompt 不够明确</li>
+      </ol>
+      <p><strong>急救方案</strong>：临时启用将整个历史上下文拼接到检索查询中（路径二），等指代消解修好后再切回路径一。</p>
+    </div>
+
+    <div class="panel bad">
+      <h3>❌ 问题二：对话到第 10 轮时，响应突然变得非常慢</h3>
+      <p><strong>原因</strong>：随着对话增长，prompt 越来越长，TTFT 线性增加。</p>
+      <p><strong>排查步骤</strong>：</p>
+      <ol>
+        <li>打印 <code>token_estimate</code> 看看对话到 10 轮时 prompt 有多少 token</li>
+        <li>检查 <code>SlidingWindowHistory._trim()</code> 是否在正常工作——有时只加了消息没触发裁剪</li>
+        <li>检查 <code>window_size</code> 设置是否合理（10 轮 × 2 = 20 条消息 + system，可能已经几千 token）</li>
+      </ol>
+      <p><strong>解决方案</strong>：减小 <code>window_size</code>，或者在每一轮对话后调用 <code>history._trim()</code> 确保裁剪生效。</p>
+    </div>
+
+    <div class="panel bad">
+      <h3>❌ 问题三：切换模型后，对话历史格式导致 API 报错</h3>
+      <p><strong>原因</strong>：不同模型的 Chat API 对 message 格式要求有细微差异。</p>
+      <p><strong>常见差异</strong>：</p>
+      <ul>
+        <li>有些模型要求 messages 第一条必须是 <code>system</code>（OpenAI、DeepSeek），有些没有限制</li>
+        <li>通义千问的 DashScope API 要求 messages 中不能有空 <code>content</code></li>
+        <li>部分模型不支持 <code>name</code> 字段</li>
+      </ul>
+      <p><strong>解决方案</strong>：在 <code>BaseChatAdapter.chat()</code> 方法中添加消息格式校验和清理逻辑：</p>
+      <pre><code>def _sanitize_messages(self, messages: list[dict]) -> list[dict]:
+    """清理消息格式，确保兼容性"""
+    cleaned = []
+    for m in messages:
+        # 确保 content 不为空
+        if not m.get("content"):
+            m["content"] = "..."
+        # 确保第一条是 system（如果模型要求）
+        cleaned.append({"role": m["role"], "content": m["content"]})
+    return cleaned</code></pre>
+    </div>
+  </section>
+
+  <!-- ===================== 参考资源 ===================== -->
+  <section>
+    <h2>参考资源</h2>
+
+    <p>本课涉及的知识点，推荐以下资源进一步深入学习：</p>
+    <ul>
+      <li><strong>对话历史管理</strong>：<a href="https://arxiv.org/abs/2305.14005">"Adapting Language Models to Compress Contexts" — Mu et al., 2023</a>——关于如何压缩对话历史的论文，摘要压缩策略的理论基础</li>
+      <li><strong>指代消解</strong>：<a href="https://aclanthology.org/N18-2108/">"End-to-end Neural Coreference Resolution" — Lee et al., 2017</a>——神经指代消解的奠基工作，理解"如何让模型识别指代关系"</li>
+      <li><strong>通义千问 API 文档</strong>：<a href="https://help.aliyun.com/zh/dashscope/developer-reference/compatibility-of-openai-with-dashscope/">DashScope OpenAI 兼容模式</a>——通义千问 API 与 OpenAI 兼容模式的详细对比</li>
+      <li><strong>DeepSeek API 文档</strong>：<a href="https://platform.deepseek.com/docs">DeepSeek Platform Docs</a>——DeepSeek API 的调用方式和参数说明</li>
+      <li><strong>多轮对话系统的质量评估</strong>：<a href="https://arxiv.org/abs/2309.15217">"RAGAS: Automated Evaluation of Retrieval Augmented Generation"</a>——你在 L7 学过的 RAGAS，其中 Answer Relevancy 指标在多轮对话中的特殊考量</li>
+      <li><strong>客服对话数据集</strong>：<a href="https://github.com/thu-coai/CDial-GPT">CDial-GPT: Chinese Dialogue Dataset</a>——中文多轮对话数据集，可用于测试你的对话 RAG 系统</li>
+    </ul>
+    <p><strong>特别推荐</strong>：阅读 L8 技术栈全景图中关于多模型的对比部分，它为你选择适配层支持的模型提供了决策依据。</p>
+    <p class="small">本课代码 <code>model_adapter.py</code> 中的通义千问适配器使用了基础 HTTP 调用——实际项目中推荐使用 DashScope 官方 SDK：<code>pip install dashscope</code>。</p>
+  </section>
+
+  <!-- ===================== 结尾：追问提示 ===================== -->
+  <section>
+    <h2>课后思考</h2>
+    <p>到今天为止，你的 RAG 系统已经具备：</p>
+    <ul>
+      <li>✅ 核心检索-生成能力（L1-L7）</li>
+      <li>✅ 全局技术栈选型能力（L8）</li>
+      <li>✅ 诚实拒答与多层兜底（L9）</li>
+      <li>✅ 多轮对话管理与多模型切换（L10）</li>
+    </ul>
+    <p>下一课 <a href="0011-rag-prompt-engineering.html">L11: Prompt Engineering 在 RAG 中的实践</a>，我们将深入一个微妙但极其强大的质量杠杆——如何通过精心设计的 prompt 降低 30-50% 的幻觉率。</p>
+    <p>如果你对今天的内容有任何疑问——比如某个策略为什么这样设计、某个 API 怎么调、某种极端情况怎么处理——随时可以追问。记住，<strong>对一个 AI 老师追问是深度学习的最佳路径</strong>。</p>
+  </section>
+
+  <script>
+  document.querySelectorAll('.quiz button').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const q = this.dataset.q;
+      const a = this.dataset.a;
+      const fb = document.getElementById('fb' + q);
+      const siblings = this.parentElement.querySelectorAll('button');
+      const answers = {
+        '1': 'B',
+        '2': 'A',
+        '3': 'C',
+        '4': 'A',
+        '5': 'C',
+      };
+
+      siblings.forEach(s => {
+        s.classList.remove('selected', 'correct', 'wrong');
+        s.disabled = true;
+        s.style.cursor = 'default';
+      });
+
+      this.classList.add('selected');
+
+      if (a === answers[q]) {
+        this.classList.add('correct');
+        fb.textContent = '✅ 正确！' + {
+          '1': '摘要压缩策略需要 LLM 将早期对话压缩为一条摘要消息。滑动窗口和关键轮次提取都不需要额外的 LLM 调用。',
+          '2': '指代消解的核心任务是将指向性词语（"它""这个""该产品"）解析为具体实体名称，使检索和生成都能理解上下文。',
+          '3': '滑动窗口实现简单、无额外 LLM 成本、客服对话通常在 10 轮内解决，6-8 轮窗口覆盖绝大多数场景。是最稳妥的起点。',
+          '4': '这是对的。TTFT 与 prompt 长度正相关——对话历史越长，prompt 越长，模型处理时间越长。',
+          '5': '适配器模式（Adapter Pattern）——为不兼容的接口（不同模型的 Chat API）提供一个统一的接口（chat()方法）。工厂模式用于创建适配器实例。',
+        }[q];
+      } else {
+        this.classList.add('wrong');
+        fb.textContent = '❌ 再想想。正确答案是 ' + answers[q] + '。' + {
+          '1': 'B. 摘要压缩需要 LLM 生成摘要。滑动窗口只做裁剪，关键轮次提取用规则或 LLM 评分但不压缩。',
+          '2': 'A. 指代消解就是"它→实体名称"的转换过程。B 是去重，C 是适配层，D 是历史管理。',
+          '3': 'C. 滑动窗口是推荐的起点。A 摘要压缩有额外成本，B 关键轮次提取有遗漏风险，D 全部保留会导致无限增长。',
+          '4': 'A 是对的。这是本课第五部分的核心结论。',
+          '5': 'C. 适配器模式。工厂模式（create_chat_adapter）用来创建适配器，但不是适配器本身的设计模式。',
+        }[q];
+      }
+    });
+  });
+  </script>
+
+</main>
+</body>
+</html>

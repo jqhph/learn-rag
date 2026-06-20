@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Docker Compose 部署 · 速查表</title>
+  <style>
+    :root { color-scheme:light; --ink:#172033; --muted:#667085; --line:#d7dde8; --accent:#0f766e; --bg:#fbfcfe; }
+    * { box-sizing:border-box; }
+    body { margin:0; font:16px/1.6 ui-serif,Georgia,"Noto Serif SC",serif; color:var(--ink); background:var(--bg); }
+    .page { max-width:1000px; margin:0 auto; padding:30px 20px 60px; }
+    h1 { font-size:clamp(26px,4vw,42px); margin:10px 0 6px; }
+    h2 { font-size:20px; margin:28px 0 10px; border-bottom:2px solid var(--line); padding-bottom:4px; }
+    h3 { font-size:16px; margin:18px 0 6px; }
+    p { margin:0 0 10px; }
+    a { color:#0b5cad; }
+    code { background:#eef6f5; padding:2px 5px; border-radius:4px; font:13px ui-monospace,monospace; }
+    table { border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; }
+    th, td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+    th { background:#f6f8fa; font-weight:700; }
+    .tag { display:inline-block; border-radius:4px; padding:2px 7px; font-size:12px; font-weight:700; color:#fff; font-family:ui-sans-serif,system-ui; }
+    .tag.api { background:#6d28d9; } .tag.dkr { background:#1e40af; } .tag.cps { background:#0d9488; } .tag.log { background:#b45309; } .tag.sec { background:#a10e25; }
+    .card { border:1px solid var(--line); border-radius:8px; padding:12px; margin:10px 0; }
+    .card h3 { margin:0 0 6px; font-size:15px; }
+    .good { color:#116329; } .bad { color:#a10e25; }
+    ul, ol { padding-left:20px; margin:6px 0; }
+    pre { background:#f6f8fa; border:1px solid var(--line); border-radius:6px; padding:10px; font-size:13px; overflow-x:auto; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    .two-col { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:10px 0; }
+    .pull { background:#fafbfc; border-left:4px solid var(--accent); padding:8px 12px; margin:10px 0; font-size:14px; }
+    @media print { body { background:white; } .page { max-width:none; padding:10mm; } }
+    @media (max-width:600px) { .two-col { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<div class="page">
+
+<h1>🐳 Docker Compose 容器化部署 · 速查表</h1>
+<p class="small" style="margin-top:-4px;">完整课程：<a href="../lessons/0013-docker-compose-deployment.html">第 13 课：Docker Compose 容器化部署</a></p>
+
+<h2>一、FastAPI 标准端点</h2>
+<table>
+  <tr><th>端点</th><th>方法</th><th>用途</th><th>主要参数</th></tr>
+  <tr><td><code>/retrieve</code></td><td>POST</td><td>只检索不生成</td><td>query, top_k, score_threshold, history</td></tr>
+  <tr><td><code>/ask</code></td><td>POST</td><td>完整 RAG 问答</td><td>query, session_id, user_id, stream</td></tr>
+  <tr><td><code>/evaluate</code></td><td>POST</td><td>回答质量评估</td><td>query, answer, contexts, metrics</td></tr>
+  <tr><td><code>/health</code></td><td>GET</td><td>健康检查</td><td>—（返回各服务状态）</td></tr>
+  <tr><td><code>/docs</code></td><td>GET</td><td>自动 API 文档</td><td>—（Swagger UI）</td></tr>
+</table>
+
+<h2>二、生产级 Dockerfile（多阶段构建）</h2>
+<pre># 阶段一：Builder — 安装依赖
+FROM python:3.12.4-slim AS builder
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# 阶段二：运行镜像
+FROM python:3.12.4-slim
+RUN groupadd -r rag && useradd -r -g rag rag
+WORKDIR /app
+COPY --from=builder /install /usr/local
+COPY app/ ./app/
+USER rag
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]</pre>
+
+<div class="pull"><strong>黄金法则：</strong>slim 镜像 + 多阶段 + 非 root + HEALTHCHECK + 分离 COPY 层（依赖→代码）</div>
+
+<h2>三、Docker Compose 服务栈</h2>
+<table>
+  <tr><th>服务</th><th>镜像</th><th>端口</th><th>健康检查</th><th>数据持久化</th></tr>
+  <tr><td><strong>RAG API</strong></td><td>自建 (Dockerfile)</td><td>8000</td><td>/health</td><td>./data</td></tr>
+  <tr><td><strong>Chroma</strong></td><td>chromadb/chroma:0.5.0</td><td>8000（映射 8001）</td><td>/api/v1/heartbeat</td><td>./data/chroma</td></tr>
+  <tr><td><strong>Redis</strong></td><td>redis:7-alpine</td><td>6379</td><td>redis-cli ping</td><td>./data/redis</td></tr>
+  <tr><td><strong>Nginx</strong></td><td>nginx:alpine</td><td>80</td><td>—</td><td>—</td></tr>
+</table>
+
+<h3>关键配置片段</h3>
+<pre>services:
+  rag-api:
+    build: .
+    restart: unless-stopped
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - CHROMA_HOST=chroma
+      - REDIS_HOST=redis
+    depends_on:
+      chroma:  { condition: service_healthy }
+      redis:   { condition: service_healthy }
+    networks: [rag-network]
+
+  chroma:
+    image: chromadb/chroma:0.5.0
+    restart: unless-stopped
+    volumes: [./data/chroma:/chroma/chroma]
+    healthcheck: # ...
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    volumes: [./data/redis:/data]
+
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes: [./nginx.conf:/etc/nginx/conf.d/default.conf:ro]
+
+networks:
+  rag-network: { driver: bridge }</pre>
+
+<h2>四、环境变量管理</h2>
+<table>
+  <tr><th>变量</th><th>默认值</th><th>说明</th></tr>
+  <tr><td><code>OPENAI_API_KEY</code></td><td>—</td><td>OpenAI API Key</td></tr>
+  <tr><td><code>DASHSCOPE_API_KEY</code></td><td>—</td><td>通义千问 API Key</td></tr>
+  <tr><td><code>DEEPSEEK_API_KEY</code></td><td>—</td><td>DeepSeek API Key</td></tr>
+  <tr><td><code>LLM_PROVIDER</code></td><td>openai</td><td>生成模型供应商</td></tr>
+  <tr><td><code>LLM_MODEL</code></td><td>gpt-4o-mini</td><td>生成模型名称</td></tr>
+  <tr><td><code>EMBEDDING_PROVIDER</code></td><td>openai</td><td>Embedding 供应商</td></tr>
+  <tr><td><code>EMBEDDING_MODEL</code></td><td>text-embedding-3-small</td><td>Embedding 模型</td></tr>
+  <tr><td><code>CHROMA_HOST</code></td><td>chroma</td><td>Chroma 服务地址</td></tr>
+  <tr><td><code>REDIS_HOST</code></td><td>redis</td><td>Redis 服务地址</td></tr>
+  <tr><td><code>LOG_LEVEL</code></td><td>INFO</td><td>日志级别</td></tr>
+  <tr><td><code>LOG_FORMAT</code></td><td>json</td><td>日志格式（json/text）</td></tr>
+</table>
+
+<div class="pull">⚠️ <strong>.env 文件勿提交 Git！</strong>提交 <code>.env.example</code> 作为模板，在 <code>.gitignore</code> 中添加 <code>.env</code>。</div>
+
+<h2>五、重启策略与健康检查</h2>
+<table>
+  <tr><th>重启策略</th><th>行为</th><th>推荐场景</th></tr>
+  <tr><td><code>restart: unless-stopped</code></td><td>非手动停止时崩溃自动重启</td><td class="good">✅ 生产服务首选</td></tr>
+  <tr><td><code>restart: always</code></td><td>总是重启（含手动 stop）</td><td>少用</td></tr>
+  <tr><td><code>restart: on-failure</code></td><td>仅退出码非 0 时重启</td><td>一次性任务</td></tr>
+  <tr><td><code>restart: no</code></td><td>从不重启</td><td>调试</td></tr>
+</table>
+
+<h3>依赖启动顺序</h3>
+<pre>services:
+  rag-api:
+    depends_on:
+      chroma:  { condition: service_healthy }
+      redis:   { condition: service_healthy }</pre>
+<p>RAG API 会在 Chroma 和 Redis 的健康检查通过后才启动。</p>
+
+<h2>六、JSON 结构化日志</h2>
+<pre># 日志格式
+{"time":"2026-06-20T10:30:45","level":"INFO","logger":"RAGPipeline",
+ "message":"检索完成","query":"RAG是什么","results":5,"latency_ms":320}
+
+# 查看日志
+docker compose logs -f rag-api
+
+# 过滤错误
+docker compose logs rag-api | grep '"level":"ERROR"'
+
+# 分析延迟
+docker compose logs rag-api | grep '检索完成' | \
+  python -c "import sys,json; lines=[json.loads(l) for l in sys.stdin]; \
+  ls=[l['latency_ms'] for l in lines if 'latency_ms' in l]; \
+  print(f'平均: {sum(ls)/len(ls):.0f}ms' if ls else '无数据')"</pre>
+
+<h2>七、常用命令速查</h2>
+<table>
+  <tr><th>命令</th><th>用途</th></tr>
+  <tr><td><code>docker compose up -d</code></td><td>后台启动全部服务</td></tr>
+  <tr><td><code>docker compose down</code></td><td>停止并移除容器</td></tr>
+  <tr><td><code>docker compose ps</code></td><td>查看服务状态</td></tr>
+  <tr><td><code>docker compose logs -f</code></td><td>实时查看全部日志</td></tr>
+  <tr><td><code>docker compose logs -f rag-api</code></td><td>查看指定服务日志</td></tr>
+  <tr><td><code>docker compose up -d --build rag-api</code></td><td>重新构建并启动单个服务</td></tr>
+  <tr><td><code>docker compose exec rag-api python ...</code></td><td>在运行中的容器内执行命令</td></tr>
+  <tr><td><code>docker compose restart rag-api</code></td><td>重启单个服务</td></tr>
+  <tr><td><code>docker compose down -v</code></td><td>停止并删除数据卷（⚠️ 丢数据）</td></tr>
+</table>
+
+<h2>八、Nginx 反向代理关键配置</h2>
+<pre>upstream rag_api { server rag-api:8000; }
+server {
+    listen 80;
+    location /api/ {
+        rewrite ^/api(/.*)$ $1 break;
+        proxy_pass http://rag_api;
+        proxy_read_timeout 120s;
+    }
+    location /health { proxy_pass http://rag_api/health; }
+}</pre>
+
+<h2>九、故障排查 checklist</h2>
+<ul>
+  <li>🔄 容器不断重启？→ <code>docker compose logs</code> 查看原因</li>
+  <li>🔑 API Key 无效？→ 检查 <code>.env</code> 文件是否存在且格式正确</li>
+  <li>🔌 连不上 Chroma？→ 确认 <code>condition: service_healthy</code> 和网络名匹配</li>
+  <li>🚪 端口被占？→ 用 <code>lsof -i :6379</code> 或 <code>netstat -tlnp</code> 查找</li>
+  <li>📦 502 Bad Gateway？→ 先直接调用 RAG API 排除 Nginx 问题</li>
+  <li>🐢 LLM 响应慢超时？→ 增大 <code>proxy_read_timeout</code></li>
+</ul>
+
+</div>
+</body>
+</html>

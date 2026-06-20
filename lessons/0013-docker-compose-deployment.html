@@ -1,0 +1,1852 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 13 课：Docker Compose 容器化部署 —— 一键启动你的 RAG 服务栈</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink:#172033; --muted:#667085; --line:#d7dde8; --accent:#0f766e;
+      --accent2:#8b5e00; --good:#116329; --bad:#a10e25; --bg:#fbfcfe; --panel:#fff;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-serif, Georgia, "Noto Serif SC", serif; color:var(--ink); background:var(--bg); line-height:1.7; }
+    main { max-width: 960px; margin: 0 auto; padding: 42px 22px 70px; }
+    header { margin-bottom: 30px; }
+    .kicker { font: 700 13px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--accent); text-transform: uppercase; letter-spacing: .08em; }
+    h1 { font-size: clamp(32px, 5vw, 54px); line-height:1.08; margin: 10px 0 12px; letter-spacing:0; }
+    h2 { font-size: 23px; margin: 34px 0 12px; padding-bottom: 6px; border-bottom:1px solid var(--line); }
+    h3 { font-size: 18px; margin: 20px 0 8px; }
+    h4 { font-size: 16px; margin: 14px 0 6px; }
+    p { margin: 0 0 14px; }
+    a { color:#0b5cad; text-decoration-thickness:1px; text-underline-offset:3px; }
+    .lede { color:var(--muted); max-width:760px; font-size:18px; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin:16px 0; }
+    .panel.good { border-left:4px solid var(--good); }
+    .panel.warn { border-left:4px solid var(--accent2); }
+    .panel.bad { border-left:4px solid var(--bad); }
+    .panel.info { border-left:4px solid var(--accent); }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { background:#eef6f5; padding:2px 5px; border-radius:4px; font-size:0.92em; }
+    pre { overflow:auto; background:#f6f8fa; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:16px; font-size:14px; line-height:1.55; }
+    .small { color:var(--muted); font-size:14px; }
+    .tag { display:inline-block; background:var(--accent); color:#fff; border-radius:4px; padding:2px 8px; font-size:12px; font-weight:700; letter-spacing:.03em; font-family:ui-sans-serif,system-ui; }
+    .tag.api { background:#6d28d9; }
+    .tag.docker { background:#1e40af; }
+    .tag.compose { background:#0d9488; }
+    .tag.log { background:#b45309; }
+    .tag.secret { background:#a10e25; }
+    .tag.svc { background:#4f46e5; }
+    .quiz { display:grid; gap:10px; margin-top:12px; }
+    button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:11px 13px; text-align:left; font:600 15px/1.35 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; color:var(--ink); cursor:pointer; }
+    button:hover { border-color:var(--accent); }
+    button.selected { border-color:var(--accent); background:#eef6f5; }
+    button.correct { border-color:var(--good); background:#edf8ef; color:var(--good); }
+    button.wrong { border-color:var(--bad); background:#fff0f2; color:var(--bad); }
+    .feedback { min-height:26px; font-weight:700; margin-top:8px; }
+    .task { border-left:4px solid var(--accent2); padding-left:14px; margin:20px 0; }
+    table { border-collapse:collapse; width:100%; margin:14px 0; }
+    th, td { border:1px solid var(--line); padding:8px 12px; text-align:left; font-size:15px; }
+    th { background:#f6f8fa; font-weight:700; }
+    ul, ol { padding-left:22px; }
+    .combo { display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin:16px 0; }
+    .flow { display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:center; margin:16px 0; }
+    .flow-box { border:1px solid var(--line); border-radius:6px; padding:8px 14px; background:var(--panel); font-size:14px; text-align:center; }
+    .flow-arrow { font-size:20px; color:var(--muted); }
+    .diagram { text-align:center; margin:20px 0; padding:24px; background:#fafbfc; border:1px solid var(--line); border-radius:12px; }
+    .diagram .arrow { color:var(--muted); font-size:24px; margin:0 4px; }
+    .diagram .box { display:inline-block; border:2px solid var(--accent); border-radius:8px; padding:10px 18px; margin:4px; font-weight:700; }
+    .diagram .box.warn { border-color:var(--accent2); }
+    .diagram .box.good { border-color:var(--good); }
+    .diagram .box.muted { border-color:var(--muted); color:var(--muted); }
+    .comp-table td, .comp-table th { border:1px solid var(--line); padding:8px 10px; text-align:left; font-size:14px; }
+    .comp-table th { background:#f0f2f5; }
+    .comp-table .best { background:#edf8ef; }
+    .diagram .box.svc { border-color:#4f46e5; }
+    .diagram .box.data { border-color:#b45309; }
+    .file-tree { background:#fafbfc; border:1px solid var(--line); border-radius:8px; padding:14px 18px; margin:12px 0; font-size:14px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; line-height:1.6; }
+    .file-tree .dir { color:var(--muted); }
+    .file-tree .hl { background:#fff8e1; }
+    .yml-key { color:#0550ae; }
+    .yml-val { color:#0a3069; }
+    .yml-comment { color:var(--muted); }
+    @media (max-width: 640px) { .combo { grid-template-columns: 1fr; } }
+    @media print { body { background:white; } main { max-width:none; padding:20mm; } .panel { break-inside: avoid; } button { border-color:#aaa; } .diagram { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="kicker">Lesson 0013 — 模块三 · 生产化部署与运维</div>
+    <h1>Docker Compose 容器化部署：一键启动你的 RAG 服务栈</h1>
+    <p class="lede">本课目标：把前面所有课积累的 Python RAG 脚本变成一套可部署、可扩展、可管理的生产级服务——用 FastAPI 封装 API、用 Docker 打包、用 Docker Compose 一键编排整个服务栈。</p>
+  </header>
+
+  <!-- ===================== 能力预告 ===================== -->
+  <section>
+    <h2>你今天要获得的能力</h2>
+    <p>学完本课，你将拥有：</p>
+    <ul>
+      <li>一个 <strong>FastAPI RAG 服务</strong>：<code>/retrieve</code>、<code>/ask</code>、<code>/evaluate</code> 三个标准接口，直接对外提供 RAG 能力</li>
+      <li>一份 <strong>生产级 Dockerfile</strong>：多阶段构建、依赖缓存、非 root 运行、镜像瘦身</li>
+      <li>一套 <strong>Docker Compose 编排</strong>：RAG API + 向量数据库 + Redis 缓存 + Nginx 网关，一键启动</li>
+      <li>一套 <strong>环境变量与 Secrets 管理方案</strong>：API Key、数据库连接、模型配置全归集</li>
+      <li>一套 <strong>健康检查与重启策略</strong>：各容器自动恢复，服务栈可自愈</li>
+      <li>一套 <strong>JSON 结构化日志</strong>：日志可直接被 ELK/Loki 等日志系统消费</li>
+    </ul>
+    <p>这是你的 RAG 系统从"Jupyter Notebook 里的代码片段"蜕变为"<strong>能稳定跑在服务器上的生产级服务</strong>"的关键一课。</p>
+    <p class="small">推荐阅读前课：<a href="0010-conversational-rag.html">第 10 课：对话式 RAG 与多轮对话管理</a>（本课将其封装为 API）、<a href="0012-embedding-model-selection.html">第 12 课：Embedding 模型全景与选型</a>（本课使用其模型配置）。速查表：<a href="../reference/0013-docker-compose-deployment-cheatsheet.html">Docker Compose 部署速查表</a>。</p>
+  </section>
+
+  <!-- ===================== 场景导入 ===================== -->
+  <section>
+    <h2>场景导入：从"能跑"到"能部署"</h2>
+
+    <p>到 L12 为止，你的 RAG 系统已经有了完整的能力栈：</p>
+    <ul>
+      <li>✅ 核心检索-生成管线（L1-L7）</li>
+      <li>✅ 诚实拒答与多层兜底（L9）</li>
+      <li>✅ 多轮对话与多模型切换（L10）</li>
+      <li>✅ 精良的 Prompt 设计（L11）</li>
+      <li>✅ 最优 Embedding 选型（L12）</li>
+    </ul>
+    <p>但所有这些都跑在你的<strong>本地 Python 进程</strong>里——你只能在终端里用 <code>python rag.py</code> 运行它。</p>
+
+    <div class="panel warn">
+      <h3>🤔 想象一下：你要把 RAG 系统交付给公司用</h3>
+      <p>会面临哪些问题？</p>
+      <ol>
+        <li><strong>前端怎么调用？</strong>——给前端暴露 HTTP API，不是一个 Python 类的方法调用</li>
+        <li><strong>团队其他人怎么部署？</strong>——不可能让每个人都装 Python、配环境、装 Chroma</li>
+        <li><strong>依赖那么多，环境不统一怎么办？</strong>——你的 macOS 能跑，同事的 Windows 报错</li>
+        <li><strong>向量数据库、缓存怎么启动？</strong>——每次都要手动开三个终端、敲三遍命令？</li>
+        <li><strong>API Key 散布在代码里？</strong>——改个 Key 要改代码、要重新部署？</li>
+        <li><strong>重启策略？</strong>——进程挂了，你是半夜爬起来重启的人吗？</li>
+      </ol>
+      <p>上面每一个问题，都是"本地脚本"和"部署服务"之间的鸿沟。本课将逐个跨越它们。</p>
+    </div>
+
+    <p>本课的方案选择：</p>
+    <table>
+      <tr><th>决策项</th><th>选择</th><th>理由</th></tr>
+      <tr><td>API 框架</td><td>FastAPI</td><td>Python 最现代、性能最好的 Web 框架，原生支持异步、Pydantic 校验、自动生成 OpenAPI 文档</td></tr>
+      <tr><td>容器引擎</td><td>Docker</td><td>事实标准，任何云平台都支持</td></tr>
+      <tr><td>编排工具</td><td>Docker Compose</td><td>单机多服务编排的最佳选择，够用且简单</td></tr>
+      <tr><td>向量库</td><td>Chroma（容器化）</td><td>保持与模块一一致的体验，迁移到 Qdrant/Milvus 只需改一行配置</td></tr>
+      <tr><td>缓存</td><td>Redis</td><td>会话状态缓存、embedding 缓存，为 L17 做准备</td></tr>
+      <tr><td>网关</td><td>Nginx</td><td>反向代理 + 负载均衡 + 静态资源服务</td></tr>
+    </table>
+
+    <p>先看清最终架构：</p>
+
+    <div class="diagram">
+      <div class="box svc">Nginx 网关<br><span class="small">:80 → /api/* 转发</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#0f766e;">FastAPI RAG 服务<br><span class="small">/retrieve /ask /evaluate</span></div>
+      <div class="arrow">→</div>
+      <div class="box data">Chroma 向量库<br><span class="small">数据持久化</span></div>
+      <br>
+      <div class="box muted" style="display:inline-block; margin-top:8px;">Redis 缓存<br><span class="small">会话 + embedding 缓存</span></div>
+    </div>
+  </section>
+
+  <!-- ===================== 第一部分：FastAPI 封装 RAG 服务 ===================== -->
+  <section>
+    <h2>第一部分：FastAPI 封装 RAG 服务</h2>
+
+    <p>第一步，把前面课程中写好的 RAG 管线——特别是 L10 的 <code>ConversationalRAG</code>——封装成 HTTP API。</p>
+
+    <h3>1.1 项目结构</h3>
+
+    <p>这是本课最终的项目结构。现在先建立骨架：</p>
+
+    <div class="file-tree">
+rag-service/<br>
+├── app/<br>
+│   ├── __init__.py<br>
+│   ├── main.py                  <span class="dir"># FastAPI 入口</span><br>
+│   ├── config.py                <span class="dir"># 配置管理（environment / secrets）</span><br>
+│   ├── models.py                <span class="dir"># Pydantic 请求/响应模型</span><br>
+│   ├── rag_pipeline.py          <span class="dir"># RAG 管线封装</span><br>
+│   ├── chat_history.py          <span class="dir"># 从 L10 移植</span><br>
+│   ├── context_injection.py     <span class="dir"># 从 L10 移植</span><br>
+│   ├── model_adapter.py         <span class="dir"># 从 L10 移植</span><br>
+│   ├── confidence.py            <span class="dir"># 从 L9 移植</span><br>
+│   ├── refusal_templates.py     <span class="dir"># 从 L9 移植</span><br>
+│   ├── logger.py                <span class="dir"># JSON 结构化日志</span><br>
+│   └── health.py                <span class="dir"># 健康检查</span><br>
+├── Dockerfile<br>
+├── docker-compose.yml<br>
+├── .env.example<br>
+├── requirements.txt<br>
+└── data/                        <span class="dir"># 持久化数据挂载目录</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;└── chroma/<br>
+    </div>
+
+    <h3>1.2 Pydantic 模型 —— API 的数据契约</h3>
+
+    <p>任何 API 设计的第一步是定义请求和响应的数据结构。FastAPI 使用 Pydantic 做校验和文档生成：</p>
+
+    <pre><code>"""
+app/models.py — RAG API 的请求/响应模型
+"""
+
+from pydantic import BaseModel, Field
+from typing import Optional, Any
+
+
+class RetrieveRequest(BaseModel):
+    """检索请求：只检索不生成"""
+    query: str = Field(..., description="用户查询")
+    top_k: int = Field(default=5, ge=1, le=50, description="返回结果数")
+    score_threshold: float = Field(default=0.0, ge=0.0, le=1.0, description="最低分数阈值")
+    history: Optional[list[dict]] = Field(default=None, description="对话历史（可选）")
+
+
+class RetrievedChunk(BaseModel):
+    """单条检索结果"""
+    text: str
+    score: float
+    source: Optional[str] = None
+    metadata: dict = Field(default_factory=dict)
+
+
+class RetrieveResponse(BaseModel):
+    """检索响应"""
+    query: str
+    augmented_query: Optional[str] = None
+    results: list[RetrievedChunk]
+    total_found: int
+    latency_ms: int
+
+
+class AskRequest(BaseModel):
+    """问答请求"""
+    query: str = Field(..., description="用户问题")
+    session_id: Optional[str] = Field(default=None, description="会话 ID（无则新建）")
+    user_id: Optional[str] = Field(default="anonymous", description="用户标识")
+    stream: bool = Field(default=False, description="是否流式输出")
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    max_tokens: Optional[int] = Field(default=None, ge=1, le=16384)
+
+
+class AskResponse(BaseModel):
+    """问答响应"""
+    answer: str
+    session_id: str
+    augmented_query: Optional[str] = None
+    model: str
+    history_count: int
+    retrieval_results: list[RetrievedChunk] | None = None
+    refusal: bool = False
+    latency_ms: int
+
+
+class EvaluateRequest(BaseModel):
+    """质量评估请求"""
+    query: str
+    answer: str
+    contexts: list[str]
+    metrics: list[str] = Field(default=["faithfulness", "answer_relevancy"])
+
+
+class EvaluateResponse(BaseModel):
+    """质量评估响应"""
+    query: str
+    scores: dict[str, float]
+    details: Optional[dict] = None
+
+
+class HealthResponse(BaseModel):
+    """健康检查响应"""
+    status: str  # "healthy" | "degraded" | "unhealthy"
+    version: str
+    services: dict[str, str]  # 各依赖服务的健康状态
+    rag_ready: bool  # 知识库是否已加载
+</code></pre>
+
+    <h3>1.3 配置管理 —— 不再把 Key 写死在代码里</h3>
+
+    <p><span class="tag secret">关键原则</span> <strong>所有环境差异都通过配置管理，绝不硬编码</strong>。</p>
+
+    <pre><code>"""
+app/config.py — 集中配置管理
+"""
+
+from pydantic_settings import BaseSettings
+from typing import Optional
+
+
+class Settings(BaseSettings):
+    """
+    应用配置 —— 优先从环境变量读取，支持 .env 文件。
+
+    这是 Pydantic 的 BaseSettings，它会自动从环境变量加载值。
+    环境变量名 = 属性名的大写形式（如 app_name → APP_NAME）
+    """
+
+    # ---- 基础 ----
+    app_name: str = "RAG Service"
+    version: str = "1.0.0"
+    debug: bool = False
+
+    # ---- LLM API Keys ----
+    openai_api_key: Optional[str] = None
+    dashscope_api_key: Optional[str] = None  # 通义千问
+    deepseek_api_key: Optional[str] = None
+
+    # ---- 生成模型配置 ----
+    llm_provider: str = "openai"  # openai | tongyi | deepseek
+    llm_model: str = "gpt-4o-mini"
+
+    # ---- Embedding 配置 ----
+    embedding_provider: str = "openai"  # openai | bge | local
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimension: int = 1536
+
+    # ---- 向量数据库 ----
+    vector_store_type: str = "chroma"  # chroma | qdrant
+    chroma_host: str = "chroma"        # Docker Compose 服务名
+    chroma_port: int = 8000
+    chroma_collection: str = "rag_knowledge"
+
+    # ---- Redis（缓存 + 会话存储） ----
+    redis_host: str = "redis"
+    redis_port: int = 6379
+    redis_password: Optional[str] = None
+
+    # ---- 检索参数 ----
+    retrieval_top_k: int = 5
+    retrieval_score_threshold: float = 0.4
+
+    # ---- 对话管理 ----
+    history_window_size: int = 6
+    session_timeout_minutes: int = 30
+
+    # ---- 日志 ----
+    log_level: str = "INFO"
+    log_format: str = "json"  # json | text
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+
+# 全局单例（FastAPI 依赖注入用）
+settings = Settings()
+</code></pre>
+
+    <div class="panel good">
+      <h3>为什么用 Pydantic Settings？</h3>
+      <p><code>pydantic-settings</code> 是 Pydantic 的官方配置管理库。相比 <code>os.environ.get()</code> 散落在各处，它有这些优势：</p>
+      <ul>
+        <li><strong>类型校验</strong>：<code>debug: bool</code> 自动解析 "true"/"false"/"1"/"0"</li>
+        <li><strong>自动加载 .env</strong>：配置 <code>env_file</code> 后自动读取</li>
+        <li><strong>IDE 补全</strong>：所有配置项像普通 Python 属性一样有补全和类型提示</li>
+        <li><strong>单一事实源</strong>：所有配置项集中在一个类中，一眼看清全部配置</li>
+      </ul>
+    </div>
+
+    <h3>1.4 RAG 管线封装 —— 服务核心</h3>
+
+    <p>把 L10 的 <code>ConversationalRAG</code> 适配成可以在 FastAPI 中使用的形态。核心变化是：<strong>依赖外部化</strong>——向量库、模型、缓存都从配置管理，而非硬编码。</p>
+
+    <pre><code>"""
+app/rag_pipeline.py — RAG 管线（FastAPI 适配版）
+"""
+
+import time
+import logging
+from typing import Optional
+from openai import OpenAI
+
+from .config import settings
+from .chat_history import SlidingWindowHistory
+from .context_injection import resolve_references, resolve_references_rule_based
+from .model_adapter import create_chat_adapter, BaseChatAdapter
+from .logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class RAGPipeline:
+    """
+    RAG 管线封装 —— 注入配置后供 FastAPI 路由调用。
+
+    与 L10 的 ConversationalRAG 不同之处：
+    1. 不在内部创建 SessionManager（让 FastAPI 管理会话生命周期）
+    2. 依赖配置对象而非硬编码参数
+    3. 加了详细的结构化日志
+    """
+
+    def __init__(self):
+        """初始化 RAG 管线（所有依赖通过 settings 配置）"""
+        # 生成模型适配器
+        self.adapter = create_chat_adapter(
+            settings.llm_provider,
+            settings.llm_model,
+        )
+        # 会话存储（生产环境会迁移到 Redis，这里先用内存）
+        self._sessions: dict[str, SlidingWindowHistory] = {}
+        # 知识库文档描述（用于健康检查和信息展示）
+        self.doc_count = 0
+        self.is_ready = False
+        logger.info("RAGPipeline 初始化完成",
+                     provider=settings.llm_provider,
+                     model=settings.llm_model)
+
+    def retrieve(self, query: str, top_k: int = 5,
+                 score_threshold: float = 0.0) -> list[dict]:
+        """
+        执行检索，返回结果列表。
+
+        注意：当前使用 OpenAI Embedding API + Chroma HTTP。
+        在 L5/L12 的评估框架下，这个方法的实现可替换为
+        Qdrant/Milvus/Elasticsearch 等后端。
+        """
+        start = time.time()
+        results = self._search_vector_db(query, top_k, score_threshold)
+        latency = int((time.time() - start) * 1000)
+        logger.info("检索完成", query=query, results=len(results),
+                     latency_ms=latency)
+        return results
+
+    def _search_vector_db(self, query: str, top_k: int,
+                          score_threshold: float) -> list[dict]:
+        """
+        向量数据库检索。
+
+        这里演示用 Chroma HTTP Client 连接容器化 Chroma。
+        实际实现取决于你的向量库选型。
+        """
+        # 使用 Chroma HTTP Client 连接到容器中的 Chroma
+        try:
+            import chromadb
+            client = chromadb.HttpClient(
+                host=settings.chroma_host,
+                port=settings.chroma_port,
+            )
+            collection = client.get_or_create_collection(
+                name=settings.chroma_collection
+            )
+
+            # 先获取 embedding
+            embedding = self._get_embedding(query)
+
+            # 检索
+            result = collection.query(
+                query_embeddings=[embedding],
+                n_results=top_k,
+            )
+
+            items = []
+            for i in range(len(result["ids"][0])):
+                score = result["distances"][0][i] if result.get("distances") else 0
+                if score_threshold > 0 and score < score_threshold:
+                    continue
+                items.append({
+                    "text": result["documents"][0][i],
+                    "score": score,
+                    "source": result["metadatas"][0][i].get("source", ""),
+                    "metadata": result["metadatas"][0][i],
+                })
+            return items
+
+        except Exception as e:
+            logger.error("向量库检索失败", error=str(e))
+            return []
+
+    def _get_embedding(self, text: str) -> list[float]:
+        """获取文本的 embedding 向量"""
+        if settings.embedding_provider == "openai":
+            client = OpenAI(api_key=settings.openai_api_key)
+            resp = client.embeddings.create(
+                model=settings.embedding_model,
+                input=text,
+            )
+            return resp.data[0].embedding
+        else:
+            raise ValueError(f"不支持的 embedding provider: {settings.embedding_provider}")
+
+    def ask(self, query: str, session_id: Optional[str] = None,
+            user_id: str = "anonymous",
+            temperature: Optional[float] = None,
+            max_tokens: Optional[float] = None) -> dict:
+        """
+        完整 RAG 问答。
+        """
+        start = time.time()
+
+        # 1. 获取/创建会话
+        history = self._get_or_create_session(session_id, user_id)
+
+        # 2. 指代消解
+        context_text = history.get_recent_context(n=2)
+        pronouns = {"它", "该", "这个", "那个", "上述", "该产品"}
+        if any(p in query for p in pronouns):
+            augmented_query = resolve_references(query, context_text)
+        else:
+            augmented_query = query
+
+        # 3. 检索
+        results = self.retrieve(augmented_query,
+                                top_k=settings.retrieval_top_k)
+
+        # 4. 构建生成 prompt
+        context_str = ""
+        if results:
+            context_parts = [
+                f"[来源{i+1}] {r['text']}"
+                for i, r in enumerate(results)
+            ]
+            context_str = "\n\n".join(context_parts)
+
+        # 5. 生成回答
+        messages = history.get_messages()
+        messages.append({"role": "user", "content": query})
+
+        system_content = (
+            "你是一个企业知识库助手。请基于以下检索结果回答问题。\n"
+            "如果检索结果不包含答案，请说"知识库中暂无相关信息"。\n"
+            f"检索结果：\n{context_str}"
+        )
+        if messages and messages[0]["role"] == "system":
+            messages[0]["content"] = system_content
+        else:
+            messages.insert(0, {"role": "system", "content": system_content})
+
+        try:
+            answer = self.adapter.chat(
+                messages,
+                temperature=temperature or settings.llm_params.get("temperature", 0.7),
+                max_tokens=max_tokens or settings.llm_params.get("max_tokens", 1024),
+            )
+        except Exception as e:
+            logger.error("LLM 生成失败", error=str(e))
+            answer = f"抱歉，模型调用出错了：{str(e)}。请稍后重试。"
+
+        # 6. 更新历史
+        history.add_message("user", query)
+        history.add_message("assistant", answer)
+
+        latency_ms = int((time.time() - start) * 1000)
+        logger.info("问答完成", query=query, session=session_id,
+                     latency_ms=latency_ms, refusal=(not bool(results)))
+
+        return {
+            "answer": answer,
+            "session_id": session_id or id(history),
+            "augmented_query": augmented_query,
+            "model": self.adapter.get_model_info()["model"],
+            "history_count": len(history.messages) // 2,
+            "retrieval_results": [
+                {"text": r["text"], "score": r["score"]}
+                for r in results[:3]  # 返回前 3 条详情
+            ],
+            "refusal": not bool(results),
+            "latency_ms": latency_ms,
+        }
+
+    def _get_or_create_session(self, session_id: Optional[str],
+                               user_id: str) -> SlidingWindowHistory:
+        """获取或创建对话历史会话"""
+        if session_id and session_id in self._sessions:
+            return self._sessions[session_id]
+        history = SlidingWindowHistory(
+            window_size=settings.history_window_size
+        )
+        history.add_message(
+            "system",
+            "你是一个企业知识库智能助手。请基于知识库信息回答问题。"
+        )
+        if session_id:
+            self._sessions[session_id] = history
+        return history
+
+    def get_status(self) -> dict:
+        """获取管线状态"""
+        return {
+            "ready": self.is_ready,
+            "doc_count": self.doc_count,
+            "active_sessions": len(self._sessions),
+            "llm_provider": settings.llm_provider,
+            "llm_model": settings.llm_model,
+        }
+
+
+# 全局 RAG 管线实例（FastAPI 应用启动时初始化）
+rag_pipeline = RAGPipeline()
+</code></pre>
+
+    <h3>1.5 FastAPI 路由 —— 把 Python 方法变为 HTTP API</h3>
+
+    <p>现在把 <code>RAGPipeline</code> 的各个方法暴露为 HTTP 端点：</p>
+
+    <pre><code>"""
+app/main.py — FastAPI 应用入口
+"""
+
+import time
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+
+from .config import settings
+from .models import (
+    RetrieveRequest, RetrieveResponse, RetrievedChunk,
+    AskRequest, AskResponse,
+    EvaluateRequest, EvaluateResponse,
+    HealthResponse,
+)
+from .rag_pipeline import rag_pipeline
+from .logger import get_logger
+from .health import check_service_health
+
+logger = get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    logger.info("RAG 服务启动", version=settings.version,
+                 provider=settings.llm_provider)
+    # 启动时尝试连接依赖服务
+    await check_service_health()
+    rag_pipeline.is_ready = True
+    yield
+    # 关闭时的清理工作
+    rag_pipeline.is_ready = False
+    logger.info("RAG 服务关闭")
+
+
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.version,
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+# CORS —— 允许前端跨域调用
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ===================== 路由 =====================
+
+@app.get("/health", response_model=HealthResponse,
+         summary="健康检查", tags=["系统"])
+async def health():
+    """服务健康检查 —— 用于 Docker 健康检查 + K8s Probe"""
+    services = check_service_health()
+    all_healthy = all(s == "healthy" for s in services.values())
+    return HealthResponse(
+        status="healthy" if all_healthy else "degraded",
+        version=settings.version,
+        services=services,
+        rag_ready=rag_pipeline.is_ready,
+    )
+
+
+@app.post("/retrieve", response_model=RetrieveResponse,
+          summary="语义检索", tags=["RAG"])
+async def retrieve(req: RetrieveRequest):
+    """
+    语义检索 —— 只检索不生成。
+
+    接收用户查询，返回知识库中最相关的文档片段。
+    支持可选的分数过滤和对话历史增强。
+    """
+    query = req.query
+    # 如果有历史，做指代消解
+    augmented_query = query
+    if req.history:
+        recent = "\n".join(
+            f"{m['role']}: {m['content']}"
+            for m in req.history[-4:]
+        )
+        from .context_injection import resolve_references
+        augmented_query = resolve_references(query, recent)
+
+    results = rag_pipeline.retrieve(
+        augmented_query,
+        top_k=req.top_k,
+        score_threshold=req.score_threshold,
+    )
+
+    chunks = [
+        RetrievedChunk(
+            text=r["text"],
+            score=r["score"],
+            source=r.get("source"),
+            metadata=r.get("metadata", {}),
+        )
+        for r in results
+    ]
+
+    return RetrieveResponse(
+        query=query,
+        augmented_query=augmented_query if augmented_query != query else None,
+        results=chunks,
+        total_found=len(chunks),
+        latency_ms=sum(r["score"] for r in results) if results else 0,
+    )
+
+
+@app.post("/ask", response_model=AskResponse,
+          summary="RAG 问答", tags=["RAG"])
+async def ask(req: AskRequest):
+    """
+    完整 RAG 问答 —— 检索 + 生成。
+
+    支持多轮对话（传递 session_id），自动进行指代消解。
+    可选流式输出（stream=True）。
+    """
+    result = rag_pipeline.ask(
+        query=req.query,
+        session_id=req.session_id,
+        user_id=req.user_id,
+        temperature=req.temperature,
+        max_tokens=req.max_tokens,
+    )
+    return AskResponse(**result)
+
+
+@app.post("/evaluate", response_model=EvaluateResponse,
+          summary="回答质量评估", tags=["RAG"])
+async def evaluate(req: EvaluateRequest):
+    """
+    回答质量评估 —— 使用 LLM-as-a-Judge 评估回答质量。
+
+    基于 L7 的 RAGAS 指标，直接复用之前的评估代码。
+    """
+    from .ragas_eval import RAGEvaluator
+    evaluator = RAGEvaluator()
+    scores = evaluator.evaluate(
+        query=req.query,
+        answer=req.answer,
+        contexts=req.contexts,
+        metrics=req.metrics,
+    )
+    return EvaluateResponse(
+        query=req.query,
+        scores=scores,
+    )
+
+
+@app.get("/", summary="服务信息", tags=["系统"])
+async def root():
+    """服务根路径 —— 返回基本信息"""
+    return {
+        "service": settings.app_name,
+        "version": settings.version,
+        "docs": "/docs",
+        "health": "/health",
+    }
+</code></pre>
+
+    <div class="panel info">
+      <h3>FastAPI 的自动 API 文档</h3>
+      <p>FastAPI 会根据你的 Pydantic 模型和类型注解，<strong>自动生成 OpenAPI 文档</strong>。启动服务后打开 <code>http://localhost:8000/docs</code>，你就得到一个可直接调试的交互式 API 文档页面——不需要 Swagger 或其他工具。</p>
+      <p>这也是选择 FastAPI 的重要原因：它让 API 文档"写一次代码就自动生成"，永远不会跟代码不同步。</p>
+    </div>
+
+    <h3>1.6 requirements.txt</h3>
+
+    <p>生产环境的依赖要精确锁定版本：</p>
+
+    <pre><code># requirements.txt — RAG Service 依赖
+# 生成：pip freeze > requirements.txt（实际项目用 Poetry / pip-tools）
+
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+
+# LLM
+openai>=1.30.0
+
+# 向量数据库
+chromadb>=0.5.0
+
+# 缓存（L17 会详细使用）
+redis>=5.0.0
+
+# 工具
+python-dotenv>=1.0.0
+python-json-logger>=2.0.0
+httpx>=0.27.0
+</code></pre>
+
+    <div class="panel warn">
+      <h3>关于依赖版本</h3>
+      <p>上面用的是 <code>>=</code> 表示最低版本，学习阶段灵活。但<strong>生产环境务必锁定确切版本</strong>（去掉 <code>>=</code>，写死如 <code>fastapi==0.111.0</code>），并用 <code>pip freeze</code> 或 Poetry 生成 lock 文件，确保每次构建镜像时依赖一致。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 第二部分：Dockerfile ===================== -->
+  <section>
+    <h2>第二部分：Dockerfile 与多阶段构建</h2>
+
+    <p>Service 代码写好了，怎么打包成可移植的镜像？<span class="tag docker">Dockerfile</span> 就是镜像的"配方"。</p>
+
+    <h3>2.1 从"能用"到"生产级"的 Dockerfile</h3>
+
+    <p>先看一个<strong>反面教材</strong>，大多数人第一次写的 Dockerfile：</p>
+
+    <pre><code># ❌ 反面教材 —— 别这么写
+FROM python:3.12
+WORKDIR /app
+COPY . .
+RUN pip install -r requirements.txt
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]</code></pre>
+
+    <p>问题在哪？</p>
+    <ol>
+      <li><strong>没利用缓存</strong>：改一行代码，所有依赖重新安装（pip install 很慢）</li>
+      <li><strong>镜像太大</strong>：包含了编译工具链、文档、包缓存——一个项目可能 1.5GB+</li>
+      <li><strong>root 运行</strong>：容器内以 root 运行——安全隐患</li>
+      <li><strong>没版本锁定</strong>：基础镜像 tag 是 <code>python:3.12</code>，明天拉可能变成 3.12.x</li>
+    </ol>
+
+    <h3>2.2 生产级 Dockerfile（多阶段构建）</h3>
+
+    <p><span class="tag docker">多阶段构建</span>是 Docker 的核心最佳实践。思路：第一个阶段安装编译依赖并安装 Python 包，第二个阶段只复制运行所需的产物，抛弃编译工具和中间文件。</p>
+
+    <pre><code># ===============================================================
+# Dockerfile — 多阶段构建
+# ===============================================================
+
+# ---------- 阶段一：安装依赖 ----------
+# 选择具体的小版本而非大版本，避免意外的 breaking change
+FROM python:3.12.4-slim AS builder
+
+WORKDIR /build
+
+# 1. 先只复制依赖清单（利用 Docker 缓存：不改 requirements 就不重装）
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ---------- 阶段二：最终运行镜像 ----------
+# 使用更小的 slim 基础镜像
+FROM python:3.12.4-slim
+
+# 安全：以非 root 用户运行
+RUN groupadd -r rag && useradd -r -g rag rag
+
+WORKDIR /app
+
+# 只从 builder 阶段复制已安装的包（而不是重复 pip install）
+COPY --from=builder /install /usr/local
+
+# 复制应用代码
+COPY app/ ./app/
+
+# 创建数据目录并授权
+RUN mkdir -p /app/data && chown -R rag:rag /app/data
+
+# 切换到非 root 用户
+USER rag
+
+# 端口暴露
+EXPOSE 8000
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" \
+    || exit 1
+
+# 启动命令
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+</code></pre>
+
+    <div class="panel good">
+      <h3>生产级 Dockerfile 的 6 条黄金法则</h3>
+      <ol>
+        <li><strong>用 slim 镜像</strong>：<code>python:3.12.4-slim</code> 约 120MB vs <code>python:3.12.4</code> 约 900MB——小了 7 倍</li>
+        <li><strong>多阶段构建</strong>：编译依赖在 builder 阶段完成，最终镜像只保留运行时需要的文件</li>
+        <li><strong>充分利用缓存</strong>：把变动频率低的层（requirements.txt）放在前面，代码层放后面——这样不改依赖时永远命中缓存</li>
+        <li><strong>非 root 运行</strong>：创建专用用户，降低容器逃逸风险</li>
+        <li><strong>HEALTHCHECK</strong>：Docker 根据健康检查判断容器状态</li>
+        <li><strong>EXPOSE 声明</strong>：文档化容器监听的端口（虽然不是安全限制）</li>
+      </ol>
+    </div>
+
+    <h3>2.3 构建镜像</h3>
+
+    <pre><code># 构建镜像
+docker build -t rag-service:latest .
+
+# 查看镜像大小
+docker images rag-service
+# 预期：~200-250MB（如果只用 slim + 多阶段，而非 ~1.5GB）</code></pre>
+
+    <div class="panel info">
+      <h3>减少镜像大小的更多技巧</h3>
+      <ul>
+        <li><code>pip install --no-cache-dir</code>：防止 pip 缓存留在镜像中</li>
+        <li><strong>只用 <code>slim</code> 或 <code>alpine</code> 基础镜像</strong>——但注意 alpine 用 musl libc，某些 Python 包（特别是向量库）可能不兼容</li>
+        <li><strong>Python 包隔离</strong>：如果用 <code>pip install --user</code> 安装到 <code>/root/.local</code>，只复制 <code>/root/.local</code> 到最终镜像</li>
+        <li><strong>删除 .pyc 文件和 __pycache__</strong>：可以用 <code>find . -name '*.pyc' -delete</code></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===================== 第三部分：Docker Compose 多服务编排 ===================== -->
+  <section>
+    <h2>第三部分：Docker Compose 多服务编排</h2>
+
+    <p>有了 Dockerfile，你的 RAG 服务已经"能跑在容器里了"。但你的系统不止一个服务——还需要向量数据库、缓存、网关。<span class="tag compose">Docker Compose</span> 就是用来定义和管理多容器应用的。</p>
+
+    <h3>3.1 最终架构</h3>
+
+    <div class="diagram">
+      <div class="box svc">Nginx<br><span class="small">:80 → /api/*</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#0f766e;">RAG API<br><span class="small">:8000, 4 workers</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#b45309;">Chroma<br><span class="small">:8000</span></div>
+      <div class="arrow" style="display:block; margin-top:6px;">↓</div>
+      <div class="box muted" style="border-color:#1e40af;">Redis<br><span class="small">:6379</span></div>
+      <br>
+      <div class="small" style="margin-top:8px;">黄色箭头 = 网络通信 | 所有服务在同一 Docker 网络内</div>
+    </div>
+
+    <h3>3.2 docker-compose.yml 完整编排</h3>
+
+    <p>这是本课的核心文件——把全部服务用代码定义清楚：</p>
+
+    <pre><code># docker-compose.yml — RAG 服务栈完整编排
+#
+# 使用方式：
+#   启动： docker compose up -d
+#   停止： docker compose down
+#   查看日志： docker compose logs -f
+#   重建服务： docker compose up -d --build rag-api
+
+version: "3.8"
+
+services:
+
+  # ==================== RAG API ====================
+  rag-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rag-service:latest
+    container_name: rag-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # 应用配置
+      - APP_NAME=RAG Service
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+      # LLM API Keys（来自 .env 文件或宿主机环境变量）
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      # 模型选择
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      # 依赖服务地址（Compose 服务名作为 hostname）
+      - CHROMA_HOST=chroma
+      - CHROMA_PORT=8000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      # 持久化数据（如上传的文件、缓存等）
+      - ./data:/app/data
+    depends_on:
+      chroma:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; r=urllib.request.urlopen('http://localhost:8000/health'); assert r.status==200"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - rag-network
+
+  # ==================== Chroma 向量库 ====================
+  chroma:
+    image: chromadb/chroma:0.5.0
+    container_name: rag-chroma
+    restart: unless-stopped
+    volumes:
+      # 持久化向量数据
+      - ./data/chroma:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+      - PERSIST_DIRECTORY=/chroma/chroma
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/heartbeat')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    ports:
+      - "8001:8000"  # 映射到主机 8001 避免与 RAG API 冲突
+    networks:
+      - rag-network
+
+  # ==================== Redis 缓存 ====================
+  redis:
+    image: redis:7-alpine
+    container_name: rag-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    ports:
+      - "6379:6379"
+    networks:
+      - rag-network
+
+  # ==================== Nginx 网关 ====================
+  nginx:
+    image: nginx:alpine
+    container_name: rag-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - rag-api
+    networks:
+      - rag-network
+
+# ==================== 网络 ====================
+networks:
+  rag-network:
+    driver: bridge
+</code></pre>
+
+    <div class="panel good">
+      <h3>编排设计要点</h3>
+      <ul>
+        <li><strong>depends_on + condition</strong>：RAG API 在 Chroma 和 Redis 健康后才启动——避免启动期连不上依赖报错</li>
+        <li><strong>restart: unless-stopped</strong>：非手动停止的容器崩溃后自动重启——这是生产部署的基本保障</li>
+        <li><strong>volumes 挂载持久化</strong>：Chroma 的向量数据、Redis 的 AOF 文件都挂载到宿主机 <code>./data/</code>——容器删了数据不丢</li>
+        <li><strong>专用网络</strong>：所有服务在 <code>rag-network</code> 内，服务名即 hostname（RAG API 通过 <code>http://chroma:8000</code> 访问 Chroma）</li>
+        <li><strong>端口映射</strong>：仅暴露 Nginx（:80）和 Redis（:6379）到宿主机。Chroma 只在内部网络可访问，避免直接暴露</li>
+      </ul>
+    </div>
+
+    <h3>3.3 Nginx 反向代理配置</h3>
+
+    <p>Nginx 作为 API 网关，统一入口、做请求转发、静态资源服务：</p>
+
+    <pre><code># nginx.conf — Nginx 反向代理配置
+upstream rag_api {
+    server rag-api:8000;
+}
+
+server {
+    listen 80;
+    server_name _;
+
+    # 请求日志（JSON 格式）
+    log_format json escape=json
+        '{'
+          '"time":"$time_iso8601",'
+          '"remote_addr":"$remote_addr",'
+          '"method":"$request_method",'
+          '"path":"$uri",'
+          '"status":$status,'
+          '"body_bytes":$body_bytes_sent,'
+          '"request_time":$request_time,'
+          '"referer":"$http_referer",'
+          '"user_agent":"$http_user_agent"'
+        '}';
+
+    access_log /var/log/nginx/access.log json;
+    error_log /var/log/nginx/error.log;
+
+    # API 路由
+    location /api/ {
+        # 去掉 /api 前缀再转发
+        rewrite ^/api(/.*)$ $1 break;
+        proxy_pass http://rag_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 超时配置（LLM 生成可能较长）
+        proxy_read_timeout 120s;
+        proxy_connect_timeout 10s;
+    }
+
+    # 健康检查路径直接透传
+    location /health {
+        proxy_pass http://rag_api/health;
+        proxy_set_header Host $host;
+    }
+
+    # 静态文件服务（前端页面等）
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+        # 如果未来有前端 SPA，添加 try_files
+        # try_files $uri $uri/ /index.html;
+    }
+}
+</code></pre>
+
+    <p><strong>Nginx 在这里的作用</strong>：</p>
+    <ul>
+      <li>统一入口 <code>:80/api/*</code> → RAG API <code>:8000/*</code></li>
+      <li>超时配置（<code>proxy_read_timeout 120s</code>）——LLM 生成可能耗时 30s+，默认 60s 可能不够</li>
+      <li>JSON 格式的访问日志</li>
+      <li>未来静态前端页面的托管入口</li>
+    </ul>
+
+    <h3>3.4 .env 文件——环境差异化配置</h3>
+
+    <p>不要把 API Key 写在 docker-compose.yml 里！它们应该通过环境变量注入。创建一个 <code>.env</code> 文件（<strong>永远不要提交到 Git</strong>）：</p>
+
+    <pre><code># .env — 环境变量（⚠️ 不要提交到版本控制！）
+# 将 .env.example 复制为 .env 并填写实际值
+
+# ---- LLM API Keys ----
+OPENAI_API_KEY=sk-your-openai-key-here
+DASHSCOPE_API_KEY=sk-your-dashscope-key-here
+DEEPSEEK_API_KEY=sk-your-deepseek-key-here
+
+# ---- 模型选择 ----
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o-mini
+EMBEDDING_PROVIDER=openai
+EMBEDDING_MODEL=text-embedding-3-small
+
+# ---- Redis ----
+REDIS_PASSWORD=change-me-in-production
+
+# ---- 日志 ----
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+</code></pre>
+
+    <div class="panel info">
+      <h3>env_file vs environment 字段</h3>
+      <p>Docker Compose 支持两种环境变量注入方式：</p>
+      <ul>
+        <li><strong><code>environment:</code></strong> 直接在 yml 中声明——适合不敏感的服务地址配置</li>
+        <li><strong><code>env_file: .env</code></strong> 从文件加载——适合 API Key 等敏感信息。但注意 <code>.env</code> 由 Docker Compose 自动加载，所以你无需显式声明 <code>env_file</code>——Compose 会自动读取同目录的 <code>.env</code> 文件</li>
+      </ul>
+      <p>更安全的方案是使用 <strong>Docker Secrets</strong>（Docker Swarm 模式）或外部密钥管理服务（如阿里云 KMS、Vault）。</p>
+    </div>
+
+    <h3>3.5 一键启动</h3>
+
+    <pre><code># 启动全部服务（-d 表示后台运行）
+docker compose up -d
+
+# 查看服务状态
+docker compose ps
+
+# 查看所有服务的实时日志
+docker compose logs -f
+
+# 只查看 RAG API 的日志
+docker compose logs -f rag-api
+
+# 停止全部服务
+docker compose down
+
+# 停止并删除数据卷（⚠️ 会丢数据！）
+docker compose down -v
+
+# 重新构建镜像后启动（改了代码后）
+docker compose up -d --build rag-api</code></pre>
+
+    <div class="panel good">
+      <h3>启动后验证</h3>
+      <pre><code># 1. 验证健康检查
+curl http://localhost/health
+# 预期：{"status":"healthy","version":"1.0.0","services":{"rag-api":"healthy","chroma":"healthy","redis":"healthy"},"rag_ready":true}
+
+# 2. 验证 RAG API
+curl -X POST http://localhost/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"query": "什么是 RAG？", "session_id": "test001"}'
+
+# 3. 验证自动生成的 API 文档（在浏览器中打开）
+# http://localhost/api/docs
+
+# 4. 验证检索端点
+curl -X POST http://localhost/api/retrieve \
+  -H "Content-Type: application/json" \
+  -d '{"query": "向量数据库", "top_k": 3}'</code></pre>
+    </div>
+  </section>
+
+  <!-- ===================== 第四部分：环境变量与 Secrets 管理 ===================== -->
+  <section>
+    <h2>第四部分：环境变量与 Secrets 管理</h2>
+
+    <p>生产中，你不仅有开发环境，还有测试环境、预发布环境、生产环境——</p>
+
+    <table>
+      <tr><th>环境</th><th>API Key</th><th>模型</th><th>向量库地址</th><th>日志级别</th></tr>
+      <tr><td>本地开发</td><td>测试 Key</td><td>gpt-4o-mini</td><td>localhost:8000</td><td>DEBUG</td></tr>
+      <tr><td>测试环境</td><td>测试 Key（额度低）</td><td>gpt-4o-mini</td><td>test-chroma:8000</td><td>INFO</td></tr>
+      <tr><td>预发布</td><td>真正 Key（有限额）</td><td>gpt-4o</td><td>stg-chroma:8000</td><td>INFO</td></tr>
+      <tr><td>生产</td><td>正式 Key</td><td>gpt-4o</td><td>prod-chroma.internal</td><td>WARNING</td></tr>
+    </table>
+
+    <p><strong>如何为不同环境管理不同的配置？</strong></p>
+
+    <h3>4.1 多环境 .env 文件</h3>
+
+    <p>最简单的方案是按环境分文件：</p>
+
+    <pre><code># .env.development — 开发环境
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o-mini
+LOG_LEVEL=DEBUG
+
+# .env.production — 生产环境
+LLM_PROVIDER=tongyi
+LLM_MODEL=qwen-max
+LOG_LEVEL=WARNING
+</code></pre>
+
+    <p>启动指定环境的配置：</p>
+
+    <pre><code># 开发环境启动
+ENV_FILE=.env.development docker compose up -d
+
+# 生产环境启动
+ENV_FILE=.env.production docker compose --env-file .env.production up -d</code></pre>
+
+    <div class="panel warn">
+      <h3>.env 文件送 Git 吗？</h3>
+      <ul>
+        <li><code>.env</code> / <code>.env.development</code>：<strong>不送</strong>——包含真正的 API Key</li>
+        <li><code>.env.example</code>：<strong>送</strong>——空的模板，让其他人知道需要配置哪些变量</li>
+        <li><code>.env.production</code>：<strong>绝对不送</strong>——生产 Key 泄露等于每分钟都在烧钱</li>
+      </ul>
+      <p>确保 <code>.gitignore</code> 中有 <code>.env</code> 和 <code>*.env</code>。提示：把 <code>.env.example</code 添加到 .gitignore 的例外中。</p>
+    </div>
+
+    <h3>4.2 企业级 Secrets 管理方案（预览）</h3>
+
+    <p>对于真正的企业级部署，.env 文件还不够安全。以下是更完善的方案，L14 和 L18 会进一步展开：</p>
+
+    <table>
+      <tr><th>方案</th><th>适用场景</th><th>安全性</th><th>复杂度</th></tr>
+      <tr><td>.env 文件</td><td>个人/小团队开发</td><td>⭐（文件泄露风险）</td><td>⭐ 极简</td></tr>
+      <tr><td>Docker Secrets</td><td>Docker Swarm 部署</td><td>⭐⭐⭐（内存挂载）</td><td>⭐⭐ 中等</td></tr>
+      <tr><td>云厂商密钥管理（阿里云 KMS / AWS Secrets Manager）</td><td>企业生产</td><td>⭐⭐⭐⭐⭐（加密存储+自动轮转）</td><td>⭐⭐⭐ 较高</td></tr>
+      <tr><td>HashiCorp Vault</td><td>多云/混合云</td><td>⭐⭐⭐⭐⭐</td><td>⭐⭐⭐⭐ 复杂</td></tr>
+    </table>
+  </section>
+
+  <!-- ===================== 第五部分：健康检查与重启策略 ===================== -->
+  <section>
+    <h2>第五部分：健康检查与重启策略</h2>
+
+    <p>生产系统中，服务的"自愈能力"是标配而非选配。你有三个层次可以保障：</p>
+
+    <h3>5.1 Docker 重启策略（最基础的自愈）</h3>
+
+    <table>
+      <tr><th>策略</th><th>行为</th><th>推荐场景</th></tr>
+      <tr><td><code>"no"</code></td><td>从不重启</td><td>一次性任务容器</td></tr>
+      <tr><td><code>"always"</code></td><td>总是重启（包括手动 stop 后）</td><td>一般不用——stop 了还重启很烦</td></tr>
+      <tr><td><code>"unless-stopped"</code></td><td>退出码非 0 则重启；手动 stop 不重启</td><td class="best"><strong>最推荐：RAG API / 数据库</strong></td></tr>
+      <tr><td><code>"on-failure"</code></td><td>仅退出码非 0 时重启</td><td>可能因外部原因崩溃的任务</td></tr>
+    </table>
+
+    <p>在 docker-compose.yml 中设置：</p>
+
+    <pre><code>services:
+  rag-api:
+    restart: unless-stopped</code></pre>
+
+    <h3>5.2 Health Check（基于应用真实状态的健康判断）</h3>
+
+    <p>重启策略只管"进程是否活着"——但进程活着不代表应用正常。比如：</p>
+    <ul>
+      <li>Python 进程没挂，但 LLM API 连不上了</li>
+      <li>Chroma 进程在，但磁盘满了无法写入</li>
+      <li>Redis 还活着，但连接数打满了</li>
+    </ul>
+
+    <p><strong>健康检查</strong>从应用层探测真实状态。我们的 RAG API 有专门的 <code>/health</code> 端点：</p>
+
+    <pre><code># app/health.py — 健康检查逻辑
+
+import logging
+from .config import settings
+
+logger = logging.getLogger(__name__)
+
+
+def check_service_health() -> dict[str, str]:
+    """
+    检查所有依赖服务的健康状态。
+
+    返回：{服务名: "healthy" | "degraded" | "unhealthy"}
+    """
+    services = {}
+
+    # 检查 Chroma
+    try:
+        import chromadb
+        client = chromadb.HttpClient(
+            host=settings.chroma_host,
+            port=settings.chroma_port,
+        )
+        client.heartbeat()
+        services["chroma"] = "healthy"
+    except Exception as e:
+        logger.warning("Chroma 健康检查失败", extra={"error": str(e)})
+        services["chroma"] = "unhealthy"
+
+    # 检查 Redis
+    try:
+        import redis
+        r = redis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            password=settings.redis_password,
+            socket_connect_timeout=3,
+        )
+        r.ping()
+        services["redis"] = "healthy"
+    except Exception as e:
+        logger.warning("Redis 健康检查失败", extra={"error": str(e)})
+        services["redis"] = "unhealthy"
+
+    # RAG API 自身
+    try:
+        # 尝试一次简单 embedding（验证 API Key 有效）
+        if settings.openai_api_key:
+            from openai import OpenAI
+            client = OpenAI(api_key=settings.openai_api_key)
+            resp = client.embeddings.create(
+                model=settings.embedding_model,
+                input="healthcheck",
+            )
+            services["rag-api"] = "healthy"
+        else:
+            services["rag-api"] = "degraded"
+    except Exception as e:
+        logger.error("RAG API 健康检查失败", extra={"error": str(e)})
+        services["rag-api"] = "unhealthy"
+
+    return services
+</code></pre>
+
+    <h3>5.3 depends_on + condition: service_healthy（启动顺序控制）</h3>
+
+    <p>一个经典的启动时序问题：RAG API 启动时 Chroma 还没就绪，连接被拒绝导致启动失败。</p>
+
+    <p>解决方案——在 docker-compose.yml 中声明依赖条件：</p>
+
+    <pre><code>services:
+  rag-api:
+    depends_on:
+      chroma:
+        condition: service_healthy
+      redis:
+        condition: service_healthy</code></pre>
+
+    <p>这样 Docker 会等待 Chroma 和 Redis 的健康检查通过后，才启动 RAG API。注意：</p>
+    <ul>
+      <li><code>condition: service_healthy</code> 要求被依赖的服务有 HEALTHCHECK 指令</li>
+      <li>但 <code>depends_on</code> 只控制启动顺序，<strong>不保证 RAG API 启动时依赖仍健康</strong>——如果 Chroma 在 RAG API 启动过程中挂了呢？所以 RAG API 自身也要有重试逻辑</li>
+    </ul>
+
+    <div class="panel warn">
+      <h3>启动重试：最后的防线</h3>
+      <p>即使有 health check 和 depends_on，启动时仍可能因瞬时问题失败。建议在 RAG API 的初始化逻辑中添加重试（在 <code>rag_pipeline.py</code> 中加入）：</p>
+      <pre><code>import time
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+@retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=2, max=10))
+def _init_chroma_client(self):
+    import chromadb
+    client = chromadb.HttpClient(
+        host=settings.chroma_host,
+        port=settings.chroma_port,
+    )
+    client.heartbeat()
+    return client</code></pre>
+      <p>这样即使 Chroma 短暂不可用，RAG API 会在 2s → 4s → 8s → 16s → 32s 后重试，而不是直接崩溃。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 第六部分：JSON 结构化日志 ===================== -->
+  <section>
+    <h2>第六部分：JSON 结构化日志</h2>
+
+    <p>在本地开发中，<code>print()</code> 或 Python 默认的文本日志就够了。但在生产环境——特别是容器化和分布式场景中——<strong>JSON 格式的结构化日志</strong>是必需品。</p>
+
+    <div class="combo">
+      <div>
+        <h4 style="color:var(--bad);">❌ 文本日志</h4>
+        <pre style="font-size:12px;">INFO 2026-06-20 10:30:45 - RAGPipeline - 检索完成
+INFO 2026-06-20 10:30:46 - RAGPipeline - 问答完成
+ERROR 2026-06-20 10:30:47 - RAGPipeline - LLM调用失败</pre>
+        <p class="small">问题：没法用 grep 精确过滤、没法被日志系统（ELK/Loki）解析、没法自动关联 trace ID</p>
+      </div>
+      <div>
+        <h4 style="color:var(--good);">✅ JSON 结构化日志</h4>
+        <pre style="font-size:12px;">{"time":"2026-06-20T10:30:45","level":"INFO","logger":"RAGPipeline","message":"检索完成","query":"RAG是什么","results":5,"latency_ms":320}
+{"time":"2026-06-20T10:30:46","level":"INFO","logger":"RAGPipeline","message":"问答完成","session":"abc123","latency_ms":2150}
+{"time":"2026-06-20T10:30:47","level":"ERROR","logger":"RAGPipeline","message":"LLM调用失败","error":"Connection timeout","provider":"openai"}</pre>
+        <p class="small">优势：可以被 Logstash/Loki 直接解析；可以根据字段精确过滤；可以建立仪表盘监控延迟、错误率</p>
+      </div>
+    </div>
+
+    <h3>6.1 自定义 JSON Logger</h3>
+
+    <pre><code>"""
+app/logger.py — JSON 结构化日志配置
+"""
+
+import sys
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Optional
+
+
+class JSONFormatter(logging.Formatter):
+    """
+    将日志记录格式化为 JSON 行。
+    每行日志输出一个 JSON 对象，便于 ELK/Loki/Grafana 等系统消费。
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        log_entry = {
+            "time": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "line": record.lineno,
+        }
+
+        # 添加额外字段（通过 extra= 传入）
+        if hasattr(record, "extra"):
+            log_entry.update(record.extra)
+
+        # 如果有异常信息，加入堆栈
+        if record.exc_info and record.exc_info[0]:
+            log_entry["exception"] = {
+                "type": record.exc_info[0].__name__,
+                "message": str(record.exc_info[1]),
+            }
+
+        # 确保中文不乱码
+        return json.dumps(log_entry, ensure_ascii=False)
+
+
+def setup_logging(
+    level: str = "INFO",
+    log_format: str = "json",
+) -> None:
+    """
+    配置全局日志。
+
+    参数：
+        level: 日志级别（DEBUG/INFO/WARNING/ERROR）
+        log_format: "json" 或 "text"
+    """
+    handler = logging.StreamHandler(sys.stdout)
+
+    if log_format == "json":
+        handler.setFormatter(JSONFormatter())
+    else:
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            )
+        )
+
+    root = logging.getLogger()
+    root.setLevel(level.upper())
+    root.handlers.clear()
+    root.addHandler(handler)
+
+
+def get_logger(name: str) -> logging.Logger:
+    """获取带 JSON 支持的 logger"""
+    return logging.getLogger(name)
+</code></pre>
+
+    <h3>6.2 使用方式</h3>
+
+    <pre><code>from .logger import get_logger
+
+logger = get_logger(__name__)
+
+# 普通日志
+logger.info("服务启动", extra={"version": "1.0.0"})
+
+# 带结构化字段的日志
+logger.info("检索完成",
+    extra={"query": query, "results": len(results), "latency_ms": latency})
+
+# 错误日志
+try:
+    # ...
+except Exception as e:
+    logger.error("LLM 调用失败",
+        extra={"provider": "openai", "model": "gpt-4o-mini"},
+        exc_info=True)
+</code></pre>
+
+    <div class="panel warn">
+      <h3>生产日志的 3 条铁律</h3>
+      <ol>
+        <li><strong>不写敏感信息到日志</strong>：永远不会把 API Key、密码、个人身份信息（手机号、身份证号）写到日志里——你可能会发给第三方日志平台，那就等于泄露了</li>
+        <li><strong>每条日志都要能追溯</strong>：加上 <code>request_id</code> 或 <code>trace_id</code>，这样整个请求链路的日志可以被关联起来——L15 监控课会深入 trace ID 的最佳实践</li>
+        <li><strong>错误日志必须有可操作性</strong>：光写"出错了"不够——要写什么出错了、什么输入、什么上下文，让值班的人能直接定位问题</li>
+      </ol>
+    </div>
+
+    <h3>6.3 Docker 日志查看</h3>
+
+    <pre><code># 查看实时日志
+docker compose logs -f rag-api
+# 输出：{"time":"2026-06-20T10:30:45","level":"INFO",...}
+
+# 用 grep 过滤特定字段
+docker compose logs rag-api | grep '"level":"ERROR"'
+
+# 统计检索延迟
+docker compose logs rag-api | grep '检索完成' | \
+  python -c "import sys,json; \
+  lines=[json.loads(l) for l in sys.stdin]; \
+  latencies=[l['latency_ms'] for l in lines if 'latency_ms' in l]; \
+  print(f'平均延迟：{sum(latencies)/len(latencies):.0f}ms' if latencies else '无数据')"</code></pre>
+
+    <p>在生产环境中，你会把这些 JSON 日志发送到 <strong>Loki</strong>（Grafana 的日志系统）或 <strong>ELK Stack</strong>（Elasticsearch + Logstash + Kibana），然后建立延迟/错误率的仪表盘——这将是 L15 的内容。</p>
+  </section>
+
+  <!-- ===================== 第七部分：动手实践 ===================== -->
+  <section>
+    <h2>第七部分：动手实践——构建你的 RAG 服务栈</h2>
+
+    <p>现在，把前面所有组件整合到一起，完成你的第一个容器化 RAG 服务。</p>
+
+    <h3>7.1 项目文件清单</h3>
+
+    <div class="file-tree">
+rag-service/<br>
+├── app/<br>
+│   ├── __init__.py<br>
+│   ├── main.py                  <span class="dir"># FastAPI 应用入口 + 路由</span><br>
+│   ├── config.py                <span class="dir"># 配置管理</span><br>
+│   ├── models.py                <span class="dir"># 请求/响应模型</span><br>
+│   ├── rag_pipeline.py          <span class="dir"># RAG 管线</span><br>
+│   ├── chat_history.py          <span class="dir"># 从 L10 复制</span><br>
+│   ├── context_injection.py     <span class="dir"># 从 L10 复制</span><br>
+│   ├── model_adapter.py         <span class="dir"># 从 L10 复制</span><br>
+│   ├── confidence.py            <span class="dir"># 从 L9 复制</span><br>
+│   ├── refusal_templates.py     <span class="dir"># 从 L9 复制</span><br>
+│   ├── ragas_eval.py            <span class="dir"># 从 L7 复制</span><br>
+│   ├── health.py                <span class="dir"># 健康检查</span><br>
+│   └── logger.py                <span class="dir"># JSON 日志</span><br>
+├── Dockerfile<br>
+├── docker-compose.yml<br>
+├── nginx.conf<br>
+├── .env.example<br>
+├── .gitignore<br>
+└── requirements.txt<br>
+    </div>
+
+    <div class="task">
+      <h4>练习 1：从头搭建 RAG API 服务（不做完不学下一课）</h4>
+      <p>按以下步骤，从零搭建完整的容器化 RAG 服务栈：</p>
+      <ol>
+        <li>在上面的项目结构中，用本课提供的代码创建所有文件</li>
+        <li>从 L10 代码中复制 <code>chat_history.py</code>、<code>context_injection.py</code>、<code>model_adapter.py</code></li>
+        <li>从 L9 代码中复制 <code>confidence.py</code>、<code>refusal_templates.py</code></li>
+        <li>创建 <code>.env</code> 文件，填入你的 API Key</li>
+        <li>运行 <code>docker compose up -d</code> 启动全部服务</li>
+        <li>验证：<code>curl http://localhost/health</code> 返回 healthy</li>
+        <li>验证：<code>curl -X POST http://localhost/api/ask -H "Content-Type: application/json" -d '{"query":"你的知识库里有什么内容？"}'</code> 返回正常结果</li>
+      </ol>
+      <p><strong>验证标准</strong>：<code>docker compose ps</code> 显示 4 个服务全部 healthy。API 文档可在浏览器中通过 <code>http://localhost/api/docs</code> 访问。</p>
+    </div>
+
+    <div class="task">
+      <h4>练习 2：集成已有知识库</h4>
+      <p>把你的知识库文档（之前课的测试文档）导入到容器化的 Chroma 中：</p>
+      <ol>
+        <li>编写一个简单的 <code>scripts/ingest.py</code> 脚本，连接到 <code>http://localhost:8001</code> 的 Chroma，导入文档</li>
+        <li>或者修改 <code>rag_pipeline.py</code> 在启动时自动加载预设文档</li>
+        <li>验证：启动后调用 <code>/retrieve</code> 接口能检索到知识库内容</li>
+      </ol>
+      <p><strong>提示</strong>：因为 Chroma 映射了 <code>./data/chroma</code> 卷，导入一次后数据持久化，重启容器不会丢失。</p>
+    </div>
+
+    <div class="task">
+      <h4>练习 3：观察容器的自愈能力</h4>
+      <p>故意"干掉"一个容器，验证 Docker 的重启策略：</p>
+      <ol>
+        <li>运行 <code>docker compose ps</code> 查看状态（全部 running）</li>
+        <li>手动停止 Redis：<code>docker stop rag-redis</code></li>
+        <li>等待 10 秒后运行 <code>docker compose ps</code>——看到 Redis 自动重启了</li>
+        <li>观察日志：<code>docker compose logs redis</code>——能看到 Docker 自动恢复了容器</li>
+      </ol>
+      <p><strong>思考</strong>：如果你手动 <code>docker stop</code> Redis，RAG API 的 <code>/health</code> 会变成 <code>degraded</code> 还是 <code>unhealthy</code>？看看你的 <code>check_service_health()</code> 是怎么判定的。</p>
+    </div>
+
+    <div class="task">
+      <h4>练习 4：日志分析</h4>
+      <p>用 <code>docker compose logs rag-api</code> 导出 RAG API 的日志，尝试：</p>
+      <ol>
+        <li>统计日志中不同级别的日志数量（JSON 提取 <code>level</code> 字段）</li>
+        <li>找出所有延迟超过 5 秒的请求（筛选 <code>latency_ms &gt; 5000</code>）</li>
+        <li>思考：如果这个日志文件每天增长 500MB，你怎么做日志轮转？</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ===================== 检索练习 ===================== -->
+  <section>
+    <h2>检索练习：巩固你的理解</h2>
+
+    <p>回答以下问题，不要回看上面的代码——凭记忆回答：</p>
+
+    <div class="quiz" id="quiz1">
+      <p><strong>1.</strong> Dockerfile 中多阶段构建的核心目的是什么？</p>
+      <button data-q="1" data-a="A">A. 提高构建速度</button>
+      <button data-q="1" data-a="B">B. 减小最终镜像体积</button>
+      <button data-q="1" data-a="C">C. 支持多语言混合构建</button>
+      <button data-q="1" data-a="D">D. 实现并行构建</button>
+      <div class="feedback" id="fb1"></div>
+    </div>
+
+    <div class="quiz" id="quiz2">
+      <p><strong>2.</strong> 在 docker-compose.yml 中，<code>depends_on</code> 加 <code>condition: service_healthy</code> 的作用是什么？</p>
+      <button data-q="2" data-a="A">A. 声明服务之间的依赖关系，在依赖服务健康后才启动当前服务</button>
+      <button data-q="2" data-a="B">B. 让被依赖的服务优先获得 CPU 资源</button>
+      <button data-q="2" data-a="C">C. 如果依赖不健康，自动发告警</button>
+      <button data-q="2" data-a="D">D. 把依赖服务的健康状态复制到当前服务</button>
+      <div class="feedback" id="fb2"></div>
+    </div>
+
+    <div class="quiz" id="quiz3">
+      <p><strong>3.</strong> 为什么生产环境 log 要用 JSON 格式而不是纯文本？</p>
+      <button data-q="3" data-a="A">A. JSON 格式占用的磁盘空间更小</button>
+      <button data-q="3" data-a="B">B. JSON 格式的可读性更强</button>
+      <button data-q="3" data-a="C">C. JSON 格式可被日志系统（Loki/ELK）自动解析和索引</button>
+      <button data-q="3" data-a="D">D. JSON 是 Python 的默认日志格式</button>
+      <div class="feedback" id="fb3"></div>
+    </div>
+
+    <div class="quiz" id="quiz4">
+      <p><strong>4.</strong> 下面哪一项不是生产级 Dockerfile 的最佳实践？</p>
+      <button data-q="4" data-a="A">A. 使用 <code>python:3.12-slim</code> 而非 <code>python:3.12</code></button>
+      <button data-q="4" data-a="B">B. 用非 root 用户运行应用</button>
+      <button data-q="4" data-a="C">C. 将 requirements.txt 和代码放在一个 COPY 指令中——"省得写两行"</button>
+      <button data-q="4" data-a="D">D. 设置 HEALTHCHECK 指令</button>
+      <div class="feedback" id="fb4"></div>
+    </div>
+
+    <div class="quiz" id="quiz5">
+      <p><strong>5.</strong> 使用 Docker Compose 启动多服务应用后，如果你想查看所有服务的日志，应该用什么命令？</p>
+      <button data-q="5" data-a="A">docker logs $(docker ps -q)</button>
+      <button data-q="5" data-a="B">docker compose logs -f</button>
+      <button data-q="5" data-a="C">docker service logs</button>
+      <button data-q="5" data-a="D">docker compose ps --logs</button>
+      <div class="feedback" id="fb5"></div>
+    </div>
+  </section>
+
+  <!-- ===================== 故障诊断 ===================== -->
+  <section>
+    <h2>故障诊断：常见问题与排查</h2>
+
+    <div class="panel bad">
+      <h3>❌ 问题一：docker compose up 后 RAG API 一直在重启</h3>
+      <pre>$ docker compose ps
+NAME                STATUS                     PORTS
+rag-api             Restarting (1) 10 seconds ago
+rag-chroma          Up                        ...
+rag-redis           Up                        ...</pre>
+      <p><strong>排查步骤</strong>：</p>
+      <ol>
+        <li>查看 RAG API 的日志：<code>docker compose logs rag-api</code>
+          <ul>
+            <li>如果是 <code>OpenAI API Key 未设置</code>——<code>.env</code> 文件没被加载，检查 <code>OPENAI_API_KEY</code> 是否正确设置且拼写无误</li>
+            <li>如果是 <code>Cannot connect to chroma:8000</code>——Chroma 还没就绪。检查 <code>depends_on.condition</code> 是否配置正确</li>
+            <li>如果是 <code>ModuleNotFoundError: openai</code>——<code>pip install</code> 失败了。手动构建镜像：<code>docker compose build rag-api</code> 观察报错</li>
+          </ul>
+        </li>
+        <li><strong>查看容器的退出码</strong>：<code>docker inspect rag-api --format '{{.State.ExitCode}}'</code>——退出码 1 表示应用崩溃，137 表示被 SIGKILL（通常是 OOM）</li>
+        <li><strong>进入容器调试</strong>：<code>docker compose run rag-api sh</code> 然后手动运行 <code>python -c "from app.main import app; print('ok')"</code></li>
+      </ol>
+    </div>
+
+    <div class="panel bad">
+      <h3>❌ 问题二：/health 返回 degraded，服务"半死不活"</h3>
+      <pre>{
+  "status": "degraded",
+  "services": {
+    "rag-api": "degraded",
+    "chroma": "healthy",
+    "redis": "healthy"
+  }
+}</pre>
+      <p><strong>原因</strong>：RAG API 健康检查显示 degraded——通常是 API Key 未设置或 embedding 超时。</p>
+      <p><strong>排查步骤</strong>：</p>
+      <ol>
+        <li>检查 <code>.env</code> 文件是否在 docker-compose.yml 同目录下</li>
+        <li>检查 <code>OPENAI_API_KEY</code> 是否正确——试试在 RAG API 容器内手动调用：<code>docker compose exec rag-api python -c "from openai import OpenAI; c=OpenAI(); resp=c.embeddings.create(model='text-embedding-3-small', input='test'); print('OK')"</code></li>
+        <li>如果不在 <code>.env</code> 而在宿主机环境变量中——Docker Compose 默认读取 <code>.env</code> 文件中和宿主机环境变量。检查宿主机：<code>echo $OPENAI_API_KEY</code></li>
+      </ol>
+      <p><strong>解决方案</strong>：要么把 Key 写入 <code>.env</code> 文件，要么在 <code>docker-compose.yml</code> 的 <code>environment:</code> 中直接引用宿主机变量：<code>OPENAI_API_KEY=${OPENAI_API_KEY}</code>。</p>
+    </div>
+
+    <div class="panel bad">
+      <h3>❌ 问题三：curl localhost/api/ask 返回 502 Bad Gateway</h3>
+      <p><strong>原因</strong>：Nginx 转发了请求到 RAG API，但 RAG API 没有及时响应。</p>
+      <p><strong>排查步骤</strong>：</p>
+      <ol>
+        <li>直接调 RAG API 排除 Nginx 问题：<code>curl -X POST http://localhost:8000/ask -H "Content-Type: application/json" -d '{"query":"hi"}'</code>
+          <ul>
+            <li>如果正常返回 → Nginx 配置有问题</li>
+            <li>如果也不返回 → RAG API 本身有问题</li>
+          </ul>
+        </li>
+        <li>检查 Nginx 错误日志：<code>docker compose logs nginx</code>
+          <ul>
+            <li><code>upstream timed out</code> → <code>proxy_read_timeout</code> 太短了（LLM 生成慢的时候可能超过默认 60s）</li>
+            <li><code>no live upstreams</code> → RAG API 挂了或健康检查未通过</li>
+          </ul>
+        </li>
+        <li>检查 <code>nginx.conf</code> 中的 <code>proxy_pass http://rag_api;</code>——<code>rag_api</code> 是 upstream 名称，要匹配 docker-compose.yml 中的服务名</li>
+      </ol>
+    </div>
+
+    <div class="panel bad">
+      <h3>❌ 问题四：docker compose up 说"端口已被占用"</h3>
+      <pre>Error: response from daemon: driver failed programming external connectivity...
+Bind for 0.0.0.0:6379: port is already allocated</pre>
+      <p><strong>原因</strong>：宿主机上已经有别的进程占用了 6379 端口（你可能本地装了 Redis）。</p>
+      <p><strong>解决方案</strong>：</p>
+      <ul>
+        <li>方案一：停掉本地服务——<code>sudo systemctl stop redis</code></li>
+        <li>方案二：修改映射端口——在 docker-compose.yml 中把 <code>"6379:6379"</code> 改为 <code>"16379:6379"</code></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===================== 参考资源 ===================== -->
+  <section>
+    <h2>参考资源</h2>
+
+    <p>本课涉及的知识点，推荐以下资源进一步深入学习：</p>
+    <ul>
+      <li><strong>FastAPI 官方文档</strong>：<a href="https://fastapi.tiangolo.com/">FastAPI</a>——FastAPI 完整教程，包括依赖注入、安全认证、WebSocket 等本课未覆盖的内容</li>
+      <li><strong>Docker 官方最佳实践</strong>：<a href="https://docs.docker.com/develop/dev-best-practices/">Docker Development Best Practices</a>——官方的最佳实践指南，涵盖 Dockerfile 优化、层缓存、安全等内容</li>
+      <li><strong>Docker Compose 官方文档</strong>：<a href="https://docs.docker.com/compose/">Docker Compose Overview</a>——Compose 文件的完整参考，包括网络、卷、配置文件等</li>
+      <li><strong>12 Factor App 中文版</strong>：<a href="https://12factor.net/zh_cn/">The Twelve-Factor App</a>——SaaS 应用的 12 条方法论，本课的"配置管理"和"日志"部分直接遵循第三和第十一条</li>
+      <li><strong>Pydantic Settings 文档</strong>：<a href="https://docs.pydantic.dev/latest/concepts/pydantic_settings/">Pydantic Settings</a>——本课配置管理使用的库，支持 .env 文件、环境变量、Secrets 等多种来源</li>
+      <li><strong>Chroma Docker 部署</strong>：<a href="https://docs.trychroma.com/deployment#docker">Chroma Docker</a>——Chroma 官方 Docker 镜像使用指南</li>
+      <li><strong>结构化日志最佳实践</strong>：<a href="https://www.honeycomb.io/blog/structured-logging-best-practices">Structured Logging Best Practices — Honeycomb</a>——好的一篇结构化日志实践文章，讲解了为什么 JSON 日志比文本日志更适合生产环境</li>
+    </ul>
+
+    <p><strong>特别推荐</strong>：阅读 12 Factor App 的全部 12 条原则（只要 30 分钟）。它不只适用于 RAG 服务——你今后写的每一个生产级服务，都应该遵循这些原则。本课覆盖了其中的第 3 条（配置）、第 6 条（进程）、第 11 条（日志）。</p>
+    <p class="small">本课代码中的 <code>config.py</code> 使用了 <code>pydantic-settings</code>——确保已安装：<code>pip install pydantic-settings</code>。如果使用 Python 3.10 以下版本，注意 <code>dict[str, str]</code> 语法可能不兼容，需改为 <code>Dict[str, str]</code>。</p>
+  </section>
+
+  <!-- ===================== 结尾：追问提示 ===================== -->
+  <section>
+    <h2>课后思考</h2>
+
+    <p>到今天为止，你的 RAG 系统已经完成了一次重要的质变——从"本地 Python 脚本"变成了"可部署的容器化服务栈"。</p>
+    <p>回顾一下你完成了什么：</p>
+    <ul>
+      <li>✅ 用 FastAPI 封装了标准 API（/retrieve、/ask、/evaluate + /health）</li>
+      <li>✅ 用 Dockerfile 多阶段构建了生产级镜像（slim + 非 root + HEALTHCHECK）</li>
+      <li>✅ 用 Docker Compose 编排了 4 个服务（RAG API + Chroma + Redis + Nginx）</li>
+      <li>✅ 用 .env 文件管理敏感配置（API Key、模型选择等）</li>
+      <li>✅ 实现了完整的健康检查和自愈机制</li>
+      <li>✅ 实现了 JSON 结构化日志</li>
+    </ul>
+    <p>下一课 <a href="0014-cloud-deployment-cicd.html">L14: 云部署与 CI/CD 流水线</a>，我们将把这个服务栈部署到云服务器上，并通过 GitHub Actions 实现"git push → 自动构建 → 自动部署"的完整 CI/CD 流水线。</p>
+    <p>如果你对今天的内容有任何疑问——比如为什么多阶段构建能减小镜像体积、Nginx 反向代理的工作原理、某个 Docker 命令的参数含义——随时可以追问。记住，<strong>对一个 AI 老师追问是深度学习的最佳路径</strong>。</p>
+  </section>
+
+  <!-- ===================== 交互式问答 JS ===================== -->
+  <script>
+  document.querySelectorAll('.quiz button').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const q = this.dataset.q;
+      const a = this.dataset.a;
+      const fb = document.getElementById('fb' + q);
+      const siblings = this.parentElement.querySelectorAll('button');
+      const answers = {
+        '1': 'B',
+        '2': 'A',
+        '3': 'C',
+        '4': 'C',
+        '5': 'B',
+      };
+
+      siblings.forEach(s => {
+        s.classList.remove('selected', 'correct', 'wrong');
+        s.disabled = true;
+        s.style.cursor = 'default';
+      });
+
+      this.classList.add('selected');
+
+      if (a === answers[q]) {
+        this.classList.add('correct');
+        fb.textContent = '✅ 正确！' + {
+          '1': '多阶段构建的核心目的是减小最终镜像体积——第一个阶段安装编译依赖，第二个阶段只复制运行产物，抛弃编译工具链和中间文件。',
+          '2': 'depends_on + condition: service_healthy 确保在依赖服务通过健康检查后才启动当前服务，避免启动期连接失败。',
+          '3': 'JSON 结构化的日志可以被日志系统（Loki/ELK）自动解析和索引，支持字段级别的过滤、聚合和可视化。JSON 体积反而更大。',
+          '4': 'C 是错误的——应该把 requirements.txt 单独 COPY，利用 Docker 的层缓存。把 requirements.txt 和代码放一起 COPY 意味着改代码也会让依赖重装。',
+          '5': 'docker compose logs -f 可以查看所有服务的实时日志。-f 表示 follow（持续输出）。',
+        }[q];
+      } else {
+        this.classList.add('wrong');
+        fb.textContent = '❌ 再想想。正确答案是 ' + answers[q] + '。' + {
+          '1': 'B. 多阶段构建的核心目的是瘦身。A 提高构建速度是副产品而非核心目的，C/D 不是多阶段构建的主要用途。',
+          '2': 'A. 这是 depends_on + condition 的标准语义——控制启动顺序和条件。其他选项都是干扰项。',
+          '3': 'C. JSON 的可消费性是其核心优势——可以被日志系统自动解析。A 不对（JSON 更大），B 不对（纯文本更易读），D 不对（Python 默认日志格式不是 JSON）。',
+          '4': 'C. 永远要把文件的 COPY 分层——变和不变得分开。A/B/D 都是最佳实践。',
+          '5': 'B. docker compose logs -f 是标准命令。A 是 docker 原生（不适合 Compose 多服务），C 是 swarm 模式，D 不存在。',
+        }[q];
+      }
+    });
+  });
+  </script>
+
+</main>
+</body>
+</html>
